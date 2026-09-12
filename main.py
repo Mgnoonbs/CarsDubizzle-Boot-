@@ -39,17 +39,17 @@ def send_telegram_message(chat_id, text):
             "chat_id": chat_id,
             "text": text,
             "parse_mode": "Markdown",
-            "disable_web_page_preview": False
+            "disable_web_page_preview": False,
         }
         response = requests.post(url, data=payload, timeout=15)
-        print(f"استجابة تليجرام: {response.status_code} - {response.text}")
+        print(f"استجابة تليجرام: {response.status_code}")
         return response.status_code == 200
     except Exception as e:
         print(f"خطأ في إرسال تليجرام: {e}")
         return False
 
 
-# --- إدارة قاعدة البيانات ---
+# --- إدارة قاعدة البيانات (تصفير السجلات للتجربة) ---
 conn = sqlite3.connect(DB_FILE)
 cursor = conn.cursor()
 cursor.execute("DROP TABLE IF EXISTS sent_ads")
@@ -61,12 +61,17 @@ cursor.execute("""
 conn.commit()
 
 
+def is_sent(ad_id):
+    cursor.execute("SELECT 1 FROM sent_ads WHERE ad_id = ?", (str(ad_id),))
+    return cursor.fetchone() is not None
+
+
 def mark_sent(ad_id):
     cursor.execute("INSERT OR IGNORE INTO sent_ads (ad_id) VALUES (?)", (str(ad_id),))
     conn.commit()
 
 
-# --- الكشط باستخدام Playwright ---
+# --- الكشط المتقدم باستخدام Playwright ---
 def scrape_dubizzle_elements():
     ads_list = []
     target_url = "https://uae.dubizzle.com/ar/motors/used-cars/toyota/?sorting=date_desc&seller_type=OW"
@@ -79,6 +84,7 @@ def scrape_dubizzle_elements():
                 "--disable-setuid-sandbox",
                 "--disable-dev-shm-usage",
                 "--disable-blink-features=AutomationControlled",
+                "--window-size=1920,1080",
             ],
         )
 
@@ -87,30 +93,46 @@ def scrape_dubizzle_elements():
             viewport={"width": 1920, "height": 1080},
             extra_http_headers={
                 "Accept-Language": "ar-AE,ar;q=0.9,en-US;q=0.8,en;q=0.7",
-            }
+                "Sec-Ch-Ua": '"Not;A=Brand";v="24", "Chromium";v="128", "Google Chrome";v="128"',
+                "Sec-Ch-Ua-Mobile": "?0",
+                "Sec-Ch-Ua-Platform": '"Windows"',
+            },
         )
+
+        # تجاوز اكتشاف البوت
+        context.add_init_script("""
+            Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+        """)
 
         page = context.new_page()
 
         try:
             print(f"جاري فتح الرابط: {target_url}")
-            page.goto(target_url, timeout=60000, wait_until="networkidle")
+            page.goto(target_url, timeout=60000, wait_until="domcontentloaded")
+
             time.sleep(5)
 
-            # طباعة عنوان الصفحة للتأكد من عدم وجود Cloudflare Block
-            print(f"عنوان الصفحة الحالي: {page.title()}")
+            # التمرير لأسفل الصفحة لتنشيط تحميل الإعلانات (Lazy Loading)
+            for _ in range(4):
+                page.mouse.wheel(0, 800)
+                time.sleep(1.5)
 
-            page.mouse.wheel(0, 1500)
-            time.sleep(3)
-
-            # البحث عن كافة الروابط المؤدية لإعلانات السيارات
-            links = page.locator("a[href*='/motors/used-cars/']").all()
-            print(f"إجمالي الروابط المكتشفة في الصفحة: {len(links)}")
+            # البحث عن عناصر الإعلانات
+            cards = page.locator("div[data-testid='listing-card'], article, a[href*='/motors/used-cars/']").all()
+            print(f"تم إيجاد {len(cards)} عنصر في الصفحة.")
 
             seen_links = set()
-            for link_el in links:
+            for card in cards:
                 try:
-                    href = link_el.get_attribute("href")
+                    # استخراج الرابط
+                    href = ""
+                    if card.node_name() == "a":
+                        href = card.get_attribute("href")
+                    else:
+                        link_el = card.locator("a[href*='/motors/used-cars/']").first
+                        if link_el.count() > 0:
+                            href = link_el.get_attribute("href")
+
                     if not href:
                         continue
 
@@ -120,8 +142,8 @@ def scrape_dubizzle_elements():
                     clean_link = href.split("?")[0].rstrip("/")
                     parts = [p for p in clean_link.split("/") if p]
 
-                    # التصفية للوصول لروابط الإعلانات المباشرة فقط
-                    if len(parts) <= 5 or parts[-1] in ["used-cars", "toyota", "motors"]:
+                    # استبعاد روابط الأقسام
+                    if len(parts) <= 5 or parts[-1] in ["used-cars", "toyota", "motors", "ar"]:
                         continue
 
                     if clean_link in seen_links:
@@ -130,29 +152,44 @@ def scrape_dubizzle_elements():
 
                     ad_id = parts[-1]
 
-                    # محاولة استخراج عنوان مبدئي من نص الرابط أو الرابط نفسه
-                    title_text = link_el.inner_text().strip()
-                    if not title_text or len(title_text) < 3:
-                        title_text = f"Toyota {parts[-2].replace('-', ' ').title()}"
+                    # استخراج العنوان
+                    title = ""
+                    text_content = card.inner_text().split("\n")
+                    for t in text_content:
+                        t_clean = t.strip()
+                        if any(k in t_clean.lower() for k in ["toyota", "تويوتا", "camry", "land cruiser", "corolla", "hilux", "prado", "yaris"]):
+                            title = t_clean
+                            break
+
+                    if not title and len(text_content) > 0:
+                        title = text_content[0].strip()
+
+                    if not title or len(title) < 3:
+                        model_part = parts[-2] if len(parts) >= 2 else "Toyota"
+                        title = f"Toyota {model_part.replace('-', ' ').title()}"
+
+                    # استخراج السعر والمشاوير
+                    price = "راجع الإعلان"
+                    for t in text_content:
+                        if "درهم" in t or "AED" in t:
+                            price = t.strip()
+                            break
 
                     ads_list.append({
                         "id": ad_id,
-                        "title": title_text,
-                        "price": "راجع الرابط للتفاصيل",
-                        "year": "2024/2025",
-                        "mileage": "غير محدد",
+                        "title": title,
+                        "price": price,
                         "link": clean_link,
-                        "image_url": ""
                     })
 
-                    if len(ads_list) >= 5:
+                    if len(ads_list) >= 7:
                         break
 
                 except Exception as ex_card:
                     continue
 
         except Exception as e:
-            print(f"خطأ رئيسي أثناء التصفح: {e}")
+            print(f"خطأ أثناء التصفح: {e}")
         finally:
             browser.close()
 
@@ -160,37 +197,32 @@ def scrape_dubizzle_elements():
 
 
 def process_and_send():
-    print("بدء عملية الفحص والإرسال إلى تليجرام...")
-    
-    # فحص المتغيرات
-    if not TELEGRAM_BOT_TOKEN or not CHAT_ID:
-        print("خطأ: TELEGRAM_BOT_TOKEN أو CHAT_ID غير معرفة في GitHub Secrets!")
-        return
-
+    print("بدء عملية التصفح والإرسال إلى تليجرام...")
     ads = scrape_dubizzle_elements()
-    print(f"عدد الإعلانات المستخرجة للإرسال: {len(ads)}")
+    print(f"إجمالي الإعلانات المستخرجة بنجاح: {len(ads)}")
 
     if not ads:
-        print("لم يتم العثور على إعلانات جديدة، جاري إرسال إشعار تجريبي لتأكيد الربط...")
-        send_telegram_message(CHAT_ID, "⚠️ السكربت عمل بنجاح لكن لم يجد إعلانات جديدة في الصفحة الحالية.")
+        print("لم تعثر على إعلانات، تأكد من حظر IP أو تحديث الرابط.")
+        send_telegram_message(CHAT_ID, "⚠️ تعذر جلب الإعلانات من دوبيزل في هذه المحاولة (احتمال حجب أو عدم تحميل).")
         return
 
     for ad in ads:
         caption = (
-            f"🚘 *إعلان جديد على دوبيزل (Toyota)*\n\n"
-            f"🚗 {ad['title']}\n"
+            f"🚘 *إعلان جديد من المالك (Toyota)*\n\n"
+            f"🚗 *{ad['title']}*\n"
+            f"💰 הסعر: {ad['price']}\n"
             f"📍 الموقع: الإمارات\n\n"
-            f"🔗 [اضغط هنا لمشاهدة الإعلان كاملًا]({ad['link']})"
+            f"🔗 [اضغط هنا للفتح على دوبيزل]({ad['link']})"
         )
 
         success = send_telegram_message(CHAT_ID, caption)
 
         if success:
             mark_sent(ad["id"])
-            print(f"تم إرسال الإعلان بنجاح: {ad['id']}")
+            print(f"تم إرسال الإعلان بنجاح: {ad['title']}")
             time.sleep(2)
         else:
-            print(f"فشل إرسال الإعلان: {ad['id']}")
+            print(f"فشل إرسال الإعلان: {ad['title']}")
 
 
 if __name__ == "__main__":
