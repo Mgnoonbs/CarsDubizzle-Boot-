@@ -2,26 +2,22 @@ name: Dubizzle Toyota Scraper Bot
 
 on:
   schedule:
-    # التعديل هنا: التشغيل التلقائي كل 5 دقائق
     - cron: '*/5 * * * *'
-  workflow_dispatch: # يتيح لك تشغيل السكريبت يدوياً للتجربة في أي وقت
+  workflow_dispatch:
 
 jobs:
   run-scraper:
     runs-on: ubuntu-latest
 
     steps:
-      # 1. جلب الكود من المستودع
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      # 2. إعداد بيئة البايثون
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
-      # 3. استعادة قاعدة البيانات (SQLite Cache) لحفظ الإعلانات المرسلة سابقةً
       - name: Restore DB Cache
         uses: actions/cache@v4
         with:
@@ -30,21 +26,19 @@ jobs:
           restore-keys: |
             sent-ads-db-${{ runner.os }}-
 
-      # 4. تثبيت المكتبات ومتصفح Chromium الخاص بـ Playwright
       - name: Install Dependencies & Playwright
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          playwright install chromium --with-deps
+          npx playwright install-deps chromium
+          playwright install chromium
 
-      # 5. تشغيل السكريبت
       - name: Run Scraper Script
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           CHAT_ID: ${{ secrets.CHAT_ID }}
         run: python main.py
 
-      # 6. حفظ قاعدة البيانات المحدثة لتكون متاحة في التشغيلة القادمة
       - name: Save DB Cache
         uses: actions/cache@v4
         if: always()
