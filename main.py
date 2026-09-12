@@ -50,11 +50,14 @@ def send_telegram_message(chat_id, text):
         return False
 
 
-# --- إدارة قاعدة البيانات ---
+# --- إدارة قاعدة البيانات (تم التعديل لإلغاء وتصفير السجلات وإعادة الإرسال) ---
 conn = sqlite3.connect(DB_FILE)
 cursor = conn.cursor()
+
+# مسح الجدول القديم بالكامل لضمان عدم تخطي أي إعلان مرسل مسبقاً
+cursor.execute("DROP TABLE IF EXISTS sent_ads")
 cursor.execute("""
-    CREATE TABLE IF NOT EXISTS sent_ads (
+    CREATE TABLE sent_ads (
         ad_id TEXT PRIMARY KEY
     )
 """)
@@ -68,7 +71,7 @@ def is_sent(ad_id):
 
 def mark_sent(ad_id):
     cursor.execute(
-        "INSERT OR IGNORE INTO sent_ads (ad_id) VALUES (?)" , (str(ad_id),)
+        "INSERT OR IGNORE INTO sent_ads (ad_id) VALUES (?)", (str(ad_id),)
     )
     conn.commit()
 
@@ -95,6 +98,9 @@ def scrape_dubizzle_elements():
                 " (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
             ),
             viewport={"width": 1920, "height": 1080},
+            extra_http_headers={
+                "Accept-Language": "ar-AE,ar;q=0.9,en-US;q=0.8,en;q=0.7",
+            }
         )
 
         context.add_init_script("""
@@ -104,12 +110,11 @@ def scrape_dubizzle_elements():
         page = context.new_page()
 
         try:
-            print(f"جاري فتح الرابط: {target_url}")
+            print(f"جاري فتح الرابط المباشر: {target_url}")
             page.goto(target_url, timeout=60000, wait_until="domcontentloaded")
 
-            # الانتظار الخفيف للتأكد من انطلاق العناصر
-            time.sleep(5)
-            page.mouse.wheel(0, 1000)
+            time.sleep(6)
+            page.mouse.wheel(0, 1200)
             time.sleep(3)
 
             cards = page.locator(
@@ -142,11 +147,6 @@ def scrape_dubizzle_elements():
                     seen_links.add(clean_link)
 
                     ad_id = parts[-1]
-
-                    # فحص إذا تم إرساله من قبل
-                    if is_sent(ad_id):
-                        print(f"الإعلان {ad_id} مرسل سابقاً، سيتم تخطيه.")
-                        continue
 
                     title = ""
                     subheading_el = card.locator(
@@ -199,12 +199,12 @@ def scrape_dubizzle_elements():
                     print(f"خطأ في معالجة الكارت: {ex_card}")
                     continue
 
-            # استخراج روابط الصور العالية الجودة عبر الميتا تاج og:image
+            # استخراج روابط الصور المباشرة عالية الجودة عبر صفحة og:image لكل إعلان
             for ad in ads_list:
                 try:
                     detail_page = context.new_page()
                     detail_page.goto(ad["link"], timeout=20000, wait_until="domcontentloaded")
-                    time.sleep(1)
+                    time.sleep(1.5)
                     
                     og_img = detail_page.locator("meta[property='og:image']").get_attribute("content")
                     if og_img and "http" in og_img:
