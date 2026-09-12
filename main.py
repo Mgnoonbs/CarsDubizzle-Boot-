@@ -12,14 +12,38 @@ SCRAPER_API_KEY = os.getenv("SCRAPER_API_KEY")
 DB_FILE = "sent_ads.db"
 
 
+def send_telegram_photo(chat_id, photo_url, caption):
+    """إرسال صورة مع النص المصاحب عبر تليجرام"""
+    try:
+        url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendPhoto"
+        payload = {
+            "chat_id": chat_id,
+            "photo": photo_url,
+            "caption": caption,
+            "parse_mode": "Markdown"
+        }
+        response = requests.post(url, data=payload, timeout=20)
+        
+        # في حال فشل إرسال الصورة لسبب يتعلق بالرابط، نرسل الرسالة نصياً كبديل
+        if response.status_code != 200:
+            print(f"فشل إرسال الصورة، جاري الإرسال كنص فقط... ({response.text})")
+            return send_telegram_message(chat_id, caption)
+            
+        return True
+    except Exception as e:
+        print(f"خطأ أثناء إرسال الصورة: {e}")
+        return send_telegram_message(chat_id, caption)
+
+
 def send_telegram_message(chat_id, text):
+    """إرسال رسالة نصية فقط"""
     try:
         url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
         payload = {
             "chat_id": chat_id,
             "text": text,
             "parse_mode": "Markdown",
-            "disable_web_page_preview": False,
+            "disable_web_page_preview": False
         }
         response = requests.post(url, data=payload, timeout=15)
         return response.status_code == 200
@@ -51,7 +75,6 @@ def mark_sent(ad_id):
 
 
 def fetch_dubizzle_ads():
-    # رابط البحث المباشر لسيارات تويوتا مستعملة من المالك مرتبة من الأحدث إلى الأقدم
     target_url = "https://uae.dubizzle.com/ar/motors/used-cars/toyota/?sorting=date_desc&seller_type=OW"
     
     if SCRAPER_API_KEY:
@@ -72,10 +95,8 @@ def fetch_dubizzle_ads():
 
         soup = BeautifulSoup(res.text, "html.parser")
         
-        # البحث عن كافة بطاقات الإعلانات بناءً على data-testid التي تحتوي على listing-
         listing_anchors = soup.find_all("a", attrs={"data-testid": lambda val: val and val.startswith("listing-")})
 
-        # إذا لم يجد عبر data-testid، يبحث عن الروابط المباشرة للإعلانات داخل قائمة الإعلانات
         if not listing_anchors:
             listing_anchors = soup.select("div#listing-card-wrapper a[href*='/motors/used-cars/toyota/']")
 
@@ -88,7 +109,6 @@ def fetch_dubizzle_ads():
 
             seen_links.add(href)
             
-            # استخراج معرف الإعلان (ID) من نهاية الرابط
             clean_link = href.split("?")[0].rstrip("/")
             parts = [p for p in clean_link.split("/") if p]
             ad_id = parts[-1] if parts else str(hash(href))
@@ -115,6 +135,10 @@ def fetch_dubizzle_ads():
             loc_elem = a.find(attrs={"data-testid": "listing-location"})
             location = loc_elem.text.strip() if loc_elem else "الإمارات"
 
+            # استخراج رابط الصورة الأولى
+            img_elem = a.find("img", src=True)
+            image_url = img_elem["src"] if img_elem else None
+
             full_url = href if href.startswith("http") else f"https://uae.dubizzle.com{href}"
 
             ads_list.append({
@@ -124,6 +148,7 @@ def fetch_dubizzle_ads():
                 "year": year,
                 "km": km,
                 "location": location,
+                "image": image_url,
                 "link": full_url
             })
 
@@ -160,7 +185,14 @@ def process_and_send():
             f"🔗 [اضغط هنا لمشاهدة تفاصيل الإعلان]({ad['link']})"
         )
 
-        if send_telegram_message(CHAT_ID, caption):
+        # إرسال الصورة إذا توفرت، وإلا إرسال النص فقط
+        sent_success = False
+        if ad["image"]:
+            sent_success = send_telegram_photo(CHAT_ID, ad["image"], caption)
+        else:
+            sent_success = send_telegram_message(CHAT_ID, caption)
+
+        if sent_success:
             mark_sent(ad["id"])
             print(f"تم الإرسال بنجاح: {ad['title']}")
             time.sleep(2)
