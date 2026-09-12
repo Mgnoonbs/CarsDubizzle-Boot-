@@ -68,7 +68,7 @@ def is_sent(ad_id):
 
 def mark_sent(ad_id):
     cursor.execute(
-        "INSERT OR IGNORE INTO sent_ads (ad_id) VALUES (?)", (str(ad_id),)
+        "INSERT OR IGNORE INTO sent_ads (ad_id) VALUES (?)" , (str(ad_id),)
     )
     conn.commit()
 
@@ -95,9 +95,6 @@ def scrape_dubizzle_elements():
                 " (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
             ),
             viewport={"width": 1920, "height": 1080},
-            extra_http_headers={
-                "Accept-Language": "ar-AE,ar;q=0.9,en-US;q=0.8,en;q=0.7",
-            }
         )
 
         context.add_init_script("""
@@ -107,18 +104,18 @@ def scrape_dubizzle_elements():
         page = context.new_page()
 
         try:
-            print("جاري فتح الرابط (تويوتا - مالك مباشر - الأحدث)...")
-            page.goto(target_url, timeout=60000, wait_until="networkidle")
+            print(f"جاري فتح الرابط: {target_url}")
+            page.goto(target_url, timeout=60000, wait_until="domcontentloaded")
 
-            page.wait_for_selector("div[data-testid='listing-card'], article, div[class*='Card']", timeout=15000)
-
-            page.mouse.wheel(0, 800)
-            time.sleep(2)
+            # الانتظار الخفيف للتأكد من انطلاق العناصر
+            time.sleep(5)
+            page.mouse.wheel(0, 1000)
+            time.sleep(3)
 
             cards = page.locator(
                 "div[data-testid='listing-card'], article, div[class*='Card']"
             ).all()
-            print(f"تم العثور على {len(cards)} عنصر محتمل حسب الترتيب المحدد.")
+            print(f"تم العثور على {len(cards)} عنصر في الصفحة.")
 
             seen_links = set()
             for card in cards:
@@ -146,7 +143,9 @@ def scrape_dubizzle_elements():
 
                     ad_id = parts[-1]
 
+                    # فحص إذا تم إرساله من قبل
                     if is_sent(ad_id):
+                        print(f"الإعلان {ad_id} مرسل سابقاً، سيتم تخطيه.")
                         continue
 
                     title = ""
@@ -196,17 +195,19 @@ def scrape_dubizzle_elements():
                     if len(ads_list) >= 10:
                         break
 
-                except Exception:
+                except Exception as ex_card:
+                    print(f"خطأ في معالجة الكارت: {ex_card}")
                     continue
 
-            # فتح صفحة التفاصيل واستخراج رابط الصورة المباشر من الميتا تاج og:image
+            # استخراج روابط الصور العالية الجودة عبر الميتا تاج og:image
             for ad in ads_list:
                 try:
                     detail_page = context.new_page()
-                    detail_page.goto(ad["link"], timeout=30000, wait_until="domcontentloaded")
+                    detail_page.goto(ad["link"], timeout=20000, wait_until="domcontentloaded")
+                    time.sleep(1)
                     
                     og_img = detail_page.locator("meta[property='og:image']").get_attribute("content")
-                    if og_img:
+                    if og_img and "http" in og_img:
                         ad["image_url"] = og_img
                     else:
                         img_el = detail_page.locator("img[src*='dubizzle'], img[src*='images']").first
@@ -214,11 +215,11 @@ def scrape_dubizzle_elements():
                     
                     detail_page.close()
                 except Exception as ex:
-                    print(f"فشل جلب صورة الإعلان التفصيلية: {ex}")
+                    print(f"تعذر جلب صورة تفصيلية للإعلان {ad['id']}: {ex}")
                     ad["image_url"] = ""
 
         except Exception as e:
-            print(f"خطأ أثناء التصفح: {e}")
+            print(f"خطأ رئيسي أثناء التصفح: {e}")
         finally:
             browser.close()
 
@@ -228,31 +229,30 @@ def scrape_dubizzle_elements():
 def process_and_send():
     print("جاري فحص الإعلانات الجديدة حسب الترتيب والفلاتر...")
     ads = scrape_dubizzle_elements()
-    print(f"عدد الإعلانات الجديدة غير المرسلة: {len(ads)}")
+    print(f"عدد الإعلانات الجديدة التي سيتم إرسالها الآن: {len(ads)}")
 
     for ad in ads:
-        if not is_sent(ad["id"]):
-            caption = (
-                f"🚘 *سيارة Toyota جديدة (من المالك)*\n\n"
-                f"🚗 {ad['title']}\n"
-                f"💰 السعر: {ad['price']}\n"
-                f"📅 السنة: {ad['year']}\n"
-                f"🛣️ الممشى: {ad['mileage']}\n"
-                f"📍 الموقع: الإمارات\n\n"
-                f"🔗 [رابط الإعلان على دوبيزل]({ad['link']})"
-            )
+        caption = (
+            f"🚘 *سيارة Toyota جديدة (من المالك)*\n\n"
+            f"🚗 {ad['title']}\n"
+            f"💰 السعر: {ad['price']}\n"
+            f"📅 السنة: {ad['year']}\n"
+            f"🛣️ الممشى: {ad['mileage']}\n"
+            f"📍 الموقع: الإمارات\n\n"
+            f"🔗 [رابط الإعلان على دوبيزل]({ad['link']})"
+        )
 
-            if ad.get("image_url"):
-                success = send_telegram_photo(CHAT_ID, ad["image_url"], caption)
-            else:
-                success = send_telegram_message(CHAT_ID, caption)
+        if ad.get("image_url"):
+            success = send_telegram_photo(CHAT_ID, ad["image_url"], caption)
+        else:
+            success = send_telegram_message(CHAT_ID, caption)
 
-            if success:
-                mark_sent(ad["id"])
-                print(f"تم إرسال الإعلان: {ad['title']}")
-                time.sleep(2)
-            else:
-                print(f"فشل إرسال الإعلان: {ad['title']}")
+        if success:
+            mark_sent(ad["id"])
+            print(f"تم إرسال الإعلان بنجاح: {ad['title']}")
+            time.sleep(2)
+        else:
+            print(f"فشل إرسال الإعلان: {ad['title']}")
 
 
 if __name__ == "__main__":
