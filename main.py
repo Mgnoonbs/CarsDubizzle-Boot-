@@ -76,6 +76,7 @@ def mark_sent(ad_id):
 # --- الكشط باستخدام Playwright ---
 def scrape_dubizzle_elements():
     ads_list = []
+    target_url = "https://uae.dubizzle.com/ar/motors/used-cars/toyota/?sorting=date_desc&seller_type=OW"
 
     with sync_playwright() as p:
         browser = p.chromium.launch(
@@ -94,33 +95,32 @@ def scrape_dubizzle_elements():
                 " (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
             ),
             viewport={"width": 1920, "height": 1080},
+            extra_http_headers={
+                "Accept-Language": "ar-AE,ar;q=0.9,en-US;q=0.8,en;q=0.7",
+            }
         )
 
         context.add_init_script("""
-            Object.defineProperty(navigator, 'webdriver', {
-                get: () => undefined
-            });
+            Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
         """)
 
         page = context.new_page()
 
         try:
-            print("جاري فتح صفحة تويوتا المستعملة (من المالك مباشرة + ترتيب الأحدث)...")
-            # الرابط المحدد من قبل المستخدم
-            page.goto(
-                "https://uae.dubizzle.com/ar/motors/used-cars/toyota/?sorting=date_desc&seller_type=OW",
-                timeout=60000,
-                wait_until="domcontentloaded",
-            )
+            print("جاري فتح الرابط المحدد وتطبيق الفلاتر...")
+            page.goto(target_url, timeout=60000, wait_until="networkidle")
 
-            time.sleep(5)
-            page.mouse.wheel(0, 1500)
-            time.sleep(3)
+            # الانتظار حتى ظهور حاوي الإعلانات الرئيسي
+            page.wait_for_selector("div[data-testid='listing-card'], article, div[class*='Card']", timeout=15000)
+
+            # التمرير الخفيف للتأكد من استجابة العناصر
+            page.mouse.wheel(0, 800)
+            time.sleep(2)
 
             cards = page.locator(
-                "div[data-testid='listing-card'], div[class*='Card'], div[class*='card'], article"
+                "div[data-testid='listing-card'], article, div[class*='Card']"
             ).all()
-            print(f"تم العثور على {len(cards)} عنصر محتمل في الصفحة.")
+            print(f"تم العثور على {len(cards)} إعلان مرتباً حسب الفلتر.")
 
             seen_links = set()
             for card in cards:
@@ -201,7 +201,7 @@ def scrape_dubizzle_elements():
                 except Exception:
                     continue
 
-            # --- فتح صفحة كل إعلان غير مرسل لانتزاع رابط الصورة الأصلي المباشر ---
+            # استخراج الصورة العالية الجودة من صفحة التفاصيل مباشرة لكل إعلان
             for ad in ads_list:
                 try:
                     detail_page = context.new_page()
@@ -228,7 +228,7 @@ def scrape_dubizzle_elements():
 
 
 def process_and_send():
-    print("جاري فحص الإعلانات الجديدة...")
+    print("جاري فحص الإعلانات الجديدة حسب الترتيب والفلاتر...")
     ads = scrape_dubizzle_elements()
     print(f"عدد الإعلانات الجديدة غير المرسلة: {len(ads)}")
 
