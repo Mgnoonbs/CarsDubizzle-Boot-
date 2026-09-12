@@ -26,17 +26,16 @@ jobs:
           restore-keys: |
             sent-ads-db-${{ runner.os }}-
 
-      - name: Install Dependencies & Playwright
+      - name: Install Dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          npx playwright install-deps chromium
-          playwright install chromium
 
       - name: Run Scraper Script
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           CHAT_ID: ${{ secrets.CHAT_ID }}
+          SCRAPER_API_KEY: ${{ secrets.SCRAPER_API_KEY }}
         run: python main.py
 
       - name: Save DB Cache

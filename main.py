@@ -1,13 +1,13 @@
 import os
-import re
 import sqlite3
 import time
 import requests
 from bs4 import BeautifulSoup
 
-# --- إعدادات البوت من متغيرات البيئة (GitHub Secrets) ---
+# --- إعدادات البوت والخدمات من متغيرات البيئة ---
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
+SCRAPER_API_KEY = os.getenv("SCRAPER_API_KEY")
 
 DB_FILE = "sent_ads.db"
 
@@ -48,27 +48,23 @@ def mark_sent(ad_id):
 def fetch_dubizzle_ads():
     target_url = "https://uae.dubizzle.com/ar/motors/used-cars/toyota/?sorting=date_desc&seller_type=OW"
     
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-        "Accept-Language": "ar-AE,ar;q=0.9,en-US;q=0.8,en;q=0.7",
-        "Referer": "https://uae.dubizzle.com/",
-        "Sec-Ch-Ua": '"Chromium";v="128", "Not;A=Brand";v="24", "Google Chrome";v="128"',
-        "Sec-Ch-Ua-Mobile": "?0",
-        "Sec-Ch-Ua-Platform": '"Windows"',
-        "Upgrade-Insecure-Requests": "1"
-    }
+    # استخدام ScraperAPI للتغلب على حماية Cloudflare
+    if SCRAPER_API_KEY:
+        print("جاري الاتصال عبر ScraperAPI لتجاوز الحماية...")
+        proxy_url = f"http://api.scraperapi.com?api_key={SCRAPER_API_KEY}&url={target_url}&render=true"
+    else:
+        print("تنبيه: SCRAPER_API_KEY غير معرف، جاري محاولة الاتصال المباشر...")
+        proxy_url = target_url
 
-    session = requests.Session()
     ads_list = []
 
     try:
-        print(f"جاري جلب البيانات من: {target_url}")
-        res = session.get(target_url, headers=headers, timeout=25)
-        print(f"كود الاستجابة: {res.status_code}")
+        res = requests.get(proxy_url, timeout=60)
+        print(f"حالة الاستجابة من ScraperAPI: {res.status_code}")
 
         if res.status_code != 200:
-            print("لم نتمكن من الوصول للموقع بشكل مباشر، جاري محاولة الفحص العميق...")
+            print(f"فشل جلب الصفحة، كود الخطأ: {res.status_code}")
+            return []
 
         soup = BeautifulSoup(res.text, "html.parser")
         links = soup.find_all("a", href=True)
@@ -117,11 +113,10 @@ def process_and_send():
     print(f"تم العثور على {len(ads)} إعلانات.")
 
     if not ads:
-        # إذا تعذر السحب المباشر بسبب حظر IP سيرفرات GitHub، يرسل إشعاراً توضيحياً
-        print("تعذر جلب البيانات بسبب جدار حماية الموزع (Cloudflare).")
+        print("تعذر جلب الإعلانات عبر البروكسي.")
         send_telegram_message(
             CHAT_ID, 
-            "⚠️ تنبيه: تم كشف السكربت بواسطة حماية Cloudflare الخاصة بموقع دوبيزل من خوادم GitHub Actions."
+            "⚠️ تعذر جلب الإعلانات في هذه المحاولة، يرجى التأكد من إضافة SCRAPER_API_KEY في GitHub Secrets."
         )
         return
 
