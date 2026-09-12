@@ -105,10 +105,10 @@ def scrape_dubizzle_elements():
         page = context.new_page()
 
         try:
-            print("جاري فتح صفحة تويوتا المستعملة لكل مدن الإمارات (مرتبة من الأحدث إلى الأقدم)...")
-            # الرابط المعدل: يشمل جميع الإمارات + مرتب من الأحدث للأقدم
+            print("جاري فتح صفحة تويوتا المستعملة للجميع (مرتبة من الأحدث إلى الأقدم)...")
+            # الرابط الصحيح والمطابق تماماً لموقع دوبيزل
             page.goto(
-                "https://uae.dubizzle.com/ar/motors/used-cars/toyota/?sort=dated_desc",
+                "https://uae.dubizzle.com/ar/motors/used-cars/toyota/?sorting=date_desc",
                 timeout=60000,
                 wait_until="domcontentloaded",
             )
@@ -117,9 +117,9 @@ def scrape_dubizzle_elements():
             page.mouse.wheel(0, 1500)
             time.sleep(3)
 
+            # تحديد عناصر الإعلانات بما فيها الإعلانات المميزة (Featured)
             cards = page.locator(
-                "div[class*='Card'], div[class*='card'], article,"
-                " div[data-testid*='listing']"
+                "div[data-testid='listing-card'], div[class*='Card'], div[class*='card'], article"
             ).all()
             print(f"تم العثور على {len(cards)} عنصر محتمل في الصفحة.")
 
@@ -153,25 +153,18 @@ def scrape_dubizzle_elements():
                         continue
 
                     title = ""
+                    # التقط العنوان سواء كان من subheading أو heading أو النص الكامل للرابط
                     subheading_el = card.locator(
-                        "h2[data-testid='subheading-text']"
+                        "h2[data-testid='subheading-text'], [data-testid='heading-text']"
                     ).first
                     if subheading_el.count() > 0:
                         title = subheading_el.inner_text().strip()
 
                     if not title:
-                        h1_el = card.locator("h3[data-testid='heading-text-1']").first
-                        h2_el = card.locator("h3[data-testid='heading-text-2']").first
-                        h3_el = card.locator("h3[data-testid='heading-text-3']").first
-                        t_parts = []
-                        if h1_el.count() > 0:
-                            t_parts.append(h1_el.inner_text().strip())
-                        if h2_el.count() > 0:
-                            t_parts.append(h2_el.inner_text().strip())
-                        if h3_el.count() > 0:
-                            t_parts.append(h3_el.inner_text().strip())
+                        t_els = card.locator("h3, h2, h1").all()
+                        t_parts = [e.inner_text().strip() for e in t_els if e.inner_text().strip()]
                         if t_parts:
-                            title = " ".join(t_parts)
+                            title = " ".join(t_parts[:2])
 
                     if not title or "معرض الشهر" in title:
                         if "toyota" in parts:
@@ -181,7 +174,7 @@ def scrape_dubizzle_elements():
                                 title = f"Toyota {model_name}"
 
                     price = "غير مذكور"
-                    price_el = card.locator("[data-testid='listing-price']").first
+                    price_el = card.locator("[data-testid='listing-price'], [class*='price']").first
                     if price_el.count() > 0:
                         price = price_el.inner_text().strip() + " درهم"
 
@@ -196,9 +189,9 @@ def scrape_dubizzle_elements():
                         mileage = km_el.inner_text().strip()
 
                     image_url = ""
-                    img_el = card.locator("div[data-testid='image-gallery'] img").first
+                    img_el = card.locator("img").first
                     if img_el.count() > 0:
-                        image_url = img_el.get_attribute("src")
+                        image_url = img_el.get_attribute("src") or img_el.get_attribute("data-src") or ""
 
                     ads_list.append({
                         "id": ad_id,
