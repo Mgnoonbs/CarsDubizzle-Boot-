@@ -24,7 +24,7 @@ def send_telegram_photo(chat_id, photo_url, caption):
         }
         response = requests.post(url, data=payload, timeout=20)
         
-        # في حال فشل إرسال الصورة لسبب يتعلق بالرابط، نرسل الرسالة نصياً كبديل
+        # في حال فشل إرسال الصورة (مثل صلاحية الرابط)، يتم الإرسال كرسالة نصية كبديل
         if response.status_code != 200:
             print(f"فشل إرسال الصورة، جاري الإرسال كنص فقط... ({response.text})")
             return send_telegram_message(chat_id, caption)
@@ -135,9 +135,19 @@ def fetch_dubizzle_ads():
             loc_elem = a.find(attrs={"data-testid": "listing-location"})
             location = loc_elem.text.strip() if loc_elem else "الإمارات"
 
-            # استخراج رابط الصورة الأولى
-            img_elem = a.find("img", src=True)
-            image_url = img_elem["src"] if img_elem else None
+            # استخراج صورة السيارة الحقيقية من داخل معرض الصور المخصص
+            image_url = None
+            gallery_div = a.find(attrs={"data-testid": "image-gallery"})
+            if gallery_div:
+                img_tag = gallery_div.find("img", src=lambda s: s and "dbz-images.dubizzle.com" in s)
+                if img_tag:
+                    image_url = img_tag.get("src")
+
+            # fallback في حال عدم العثور عليها داخل image-gallery
+            if not image_url:
+                img_tag = a.find("img", src=lambda s: s and "dbz-images.dubizzle.com" in s)
+                if img_tag:
+                    image_url = img_tag.get("src")
 
             full_url = href if href.startswith("http") else f"https://uae.dubizzle.com{href}"
 
@@ -185,7 +195,6 @@ def process_and_send():
             f"🔗 [اضغط هنا لمشاهدة تفاصيل الإعلان]({ad['link']})"
         )
 
-        # إرسال الصورة إذا توفرت، وإلا إرسال النص فقط
         sent_success = False
         if ad["image"]:
             sent_success = send_telegram_photo(CHAT_ID, ad["image"], caption)
