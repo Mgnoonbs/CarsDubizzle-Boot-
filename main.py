@@ -107,20 +107,18 @@ def scrape_dubizzle_elements():
         page = context.new_page()
 
         try:
-            print("جاري فتح الرابط المحدد وتطبيق الفلاتر...")
+            print("جاري فتح الرابط (تويوتا - مالك مباشر - الأحدث)...")
             page.goto(target_url, timeout=60000, wait_until="networkidle")
 
-            # الانتظار حتى ظهور حاوي الإعلانات الرئيسي
             page.wait_for_selector("div[data-testid='listing-card'], article, div[class*='Card']", timeout=15000)
 
-            # التمرير الخفيف للتأكد من استجابة العناصر
             page.mouse.wheel(0, 800)
             time.sleep(2)
 
             cards = page.locator(
                 "div[data-testid='listing-card'], article, div[class*='Card']"
             ).all()
-            print(f"تم العثور على {len(cards)} إعلان مرتباً حسب الفلتر.")
+            print(f"تم العثور على {len(cards)} عنصر محتمل حسب الترتيب المحدد.")
 
             seen_links = set()
             for card in cards:
@@ -201,7 +199,7 @@ def scrape_dubizzle_elements():
                 except Exception:
                     continue
 
-            # استخراج الصورة العالية الجودة من صفحة التفاصيل مباشرة لكل إعلان
+            # فتح صفحة التفاصيل واستخراج رابط الصورة المباشر من الميتا تاج og:image
             for ad in ads_list:
                 try:
                     detail_page = context.new_page()
