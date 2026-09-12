@@ -105,19 +105,19 @@ def scrape_dubizzle_elements():
         page = context.new_page()
 
         try:
-            print("جاري فتح صفحة تويوتا المستعملة للجميع (مرتبة من الأحدث إلى الأقدم)...")
-            # الرابط الصحيح والمطابق تماماً لموقع دوبيزل
+            print("جاري فتح صفحة تويوتا المستعملة لكل مدن الإمارات...")
             page.goto(
                 "https://uae.dubizzle.com/ar/motors/used-cars/toyota/?sorting=date_desc",
                 timeout=60000,
                 wait_until="domcontentloaded",
             )
 
-            time.sleep(5)
-            page.mouse.wheel(0, 1500)
-            time.sleep(3)
+            # التمرير لأسفل الصفحة ببطء لتحفيز تحميل الصور الكسولة (Lazy Loading)
+            time.sleep(4)
+            for _ in range(3):
+                page.mouse.wheel(0, 1000)
+                time.sleep(1)
 
-            # تحديد عناصر الإعلانات بما فيها الإعلانات المميزة (Featured)
             cards = page.locator(
                 "div[data-testid='listing-card'], div[class*='Card'], div[class*='card'], article"
             ).all()
@@ -153,7 +153,6 @@ def scrape_dubizzle_elements():
                         continue
 
                     title = ""
-                    # التقط العنوان سواء كان من subheading أو heading أو النص الكامل للرابط
                     subheading_el = card.locator(
                         "h2[data-testid='subheading-text'], [data-testid='heading-text']"
                     ).first
@@ -188,10 +187,24 @@ def scrape_dubizzle_elements():
                     if km_el.count() > 0:
                         mileage = km_el.inner_text().strip()
 
+                    # --- استخراج رابط الصورة الدقيق مع دعم Lazy Loading ---
                     image_url = ""
-                    img_el = card.locator("img").first
-                    if img_el.count() > 0:
-                        image_url = img_el.get_attribute("src") or img_el.get_attribute("data-src") or ""
+                    imgs = card.locator("img").all()
+                    for img in imgs:
+                        src = (
+                            img.get_attribute("src")
+                            or img.get_attribute("data-src")
+                            or img.get_attribute("srcset")
+                            or ""
+                        )
+                        # اختيار الرابط الذي يحتوي على امتداد صورة حقيقي ويتبع سيرفرات دوبيزل
+                        if src and ("http" in src or "https" in src or "//" in src):
+                            if "data:image" not in src and ("dubizzle" in src or "images" in src or ".jpg" in src or ".webp" in src or ".png" in src):
+                                if src.startswith("//"):
+                                    src = "https:" + src
+                                # إذا كانت القيمة srcset أصلية وتحتوي مسافات، نأخذ الجزء الأول منها
+                                image_url = src.split(" ")[0]
+                                break
 
                     ads_list.append({
                         "id": ad_id,
