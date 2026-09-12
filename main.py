@@ -46,60 +46,95 @@ def mark_sent(ad_id):
 
 
 def fetch_dubizzle_ads():
+    # الرابط الدقيق المفلتر: تويوتا - من المالك - الأحدث أولاً
     target_url = "https://uae.dubizzle.com/ar/motors/used-cars/toyota/?sorting=date_desc&seller_type=OW"
     
-    # استخدام ScraperAPI للتغلب على حماية Cloudflare
     if SCRAPER_API_KEY:
-        print("جاري الاتصال عبر ScraperAPI لتجاوز الحماية...")
+        print("جاري جلب البيانات عبر ScraperAPI مع تفعيل Render...")
         proxy_url = f"http://api.scraperapi.com?api_key={SCRAPER_API_KEY}&url={target_url}&render=true"
     else:
-        print("تنبيه: SCRAPER_API_KEY غير معرف، جاري محاولة الاتصال المباشر...")
         proxy_url = target_url
 
     ads_list = []
 
     try:
         res = requests.get(proxy_url, timeout=60)
-        print(f"حالة الاستجابة من ScraperAPI: {res.status_code}")
-
         if res.status_code != 200:
-            print(f"فشل جلب الصفحة، كود الخطأ: {res.status_code}")
+            print(f"فشل جلب الصفحة: {res.status_code}")
             return []
 
         soup = BeautifulSoup(res.text, "html.parser")
-        links = soup.find_all("a", href=True)
+        
+        # البحث عن العناصر الخاصة بالإعلانات
+        cards = soup.find_all("div", attrs={"data-testid": "listing-card"})
+        if not cards:
+            cards = soup.find_all(["div", "article"], class_=lambda c: c and "Card" in c if c else False)
 
         seen_links = set()
-        for a in links:
-            href = a["href"]
-            if "/motors/used-cars/" in href:
+        for card in cards:
+            try:
+                a_tag = card.find("a", href=True)
+                if not a_tag:
+                    continue
+
+                href = a_tag["href"]
+                
+                # التأكد الصارم أن الإعلان لسيارة تويوتا
+                if "/motors/used-cars/toyota/" not in href:
+                    continue
+
                 if href.startswith("/"):
                     href = f"https://uae.dubizzle.com{href}"
 
                 clean_link = href.split("?")[0].rstrip("/")
                 parts = [p for p in clean_link.split("/") if p]
 
-                # فلترة المعرفات والروابط المباشرة للإعلانات فقط
-                if len(parts) >= 6 and parts[-1] not in ["used-cars", "toyota", "motors", "ar", "owner"]:
-                    if clean_link in seen_links:
-                        continue
-                    seen_links.add(clean_link)
+                # استبعاد الروابط غير المباشرة
+                if len(parts) < 6 or parts[-1] in ["used-cars", "toyota", "motors", "ar", "owner"]:
+                    continue
 
-                    ad_id = parts[-1]
-                    title_text = a.get_text(strip=True)
-                    
-                    if not title_text or len(title_text) < 3:
-                        model_name = parts[-2] if len(parts) >= 2 else "Toyota"
-                        title_text = f"Toyota {model_name.replace('-', ' ').title()}"
+                if clean_link in seen_links:
+                    continue
+                seen_links.add(clean_link)
 
-                    ads_list.append({
-                        "id": ad_id,
-                        "title": title_text,
-                        "link": clean_link
-                    })
+                ad_id = parts[-1]
 
-                    if len(ads_list) >= 5:
+                # استخراج نصوص البطاقة
+                lines = [l.strip() for l in card.get_text(separator="\n", strip=True).split("\n") if l.strip()]
+                
+                # استخراج العنوان (البحث عن أسطر تحتوي تفاصيل الموديل)
+                title = ""
+                for line in lines:
+                    if any(kw in line.lower() for kw in ["تويوتا", "toyota", "كامري", "كورولا", "لاندكروزر", "برادو", "ياريس", "هايلكس", "فورشنر", "اف جي"]):
+                        title = line
                         break
+
+                if not title and len(lines) > 0:
+                    title = lines[0]
+
+                if not title or title.isdigit():
+                    model_name = parts[-2] if len(parts) >= 2 else "Toyota"
+                    title = f"تويوتا {model_name.replace('-', ' ').title()}"
+
+                # استخراج السعر
+                price = "غير محدد"
+                for line in lines:
+                    if "درهم" in line or "AED" in line:
+                        price = line
+                        break
+
+                ads_list.append({
+                    "id": ad_id,
+                    "title": title,
+                    "price": price,
+                    "link": clean_link
+                })
+
+                if len(ads_list) >= 5:
+                    break
+
+            except Exception:
+                continue
 
     except Exception as e:
         print(f"خطأ أثناء جلب البيانات: {e}")
@@ -108,24 +143,21 @@ def fetch_dubizzle_ads():
 
 
 def process_and_send():
-    print("بدء العملية...")
+    print("بدء عملية التصفح والإرسال...")
     ads = fetch_dubizzle_ads()
-    print(f"تم العثور على {len(ads)} إعلانات.")
+    print(f"إجمالي الإعلانات المطابقة للفلتر: {len(ads)}")
 
     if not ads:
-        print("تعذر جلب الإعلانات عبر البروكسي.")
-        send_telegram_message(
-            CHAT_ID, 
-            "⚠️ تعذر جلب الإعلانات في هذه المحاولة، يرجى التأكد من إضافة SCRAPER_API_KEY في GitHub Secrets."
-        )
+        send_telegram_message(CHAT_ID, "⚠️ لم يتم العثور على إعلانات تويوتا جديدة من المالك حالياً.")
         return
 
     for ad in ads:
         caption = (
-            f"🚘 *إعلان سيارة جديد من المالك (Toyota)*\n\n"
-            f"🚗 *{ad['title']}*\n"
-            f"📍 الموقع: الإمارات\n\n"
-            f"🔗 [اضغط هنا لرؤية تفاصيل الإعلان]({ad['link']})"
+            f"🚘 *إعلان تويوتا جديد (من المالك مباشرة)*\n\n"
+            f"🚗 *الموديل:* {ad['title']}\n"
+            f"💰 *السعر:* {ad['price']}\n"
+            f"📍 *الموقع:* الإمارات\n\n"
+            f"🔗 [اضغط هنا لمشاهدة الإعلان على دوبيزل]({ad['link']})"
         )
 
         if send_telegram_message(CHAT_ID, caption):
