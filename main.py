@@ -80,7 +80,7 @@ def fetch_dubizzle_ads():
 
     if SCRAPER_API_KEY:
         print("جاري الاتصال عبر ScraperAPI...")
-        proxy_url = f"http://api.scraperapi.com?api_key={SCRAPER_API_KEY}&url={target_url}&render=true&keep_headers=true"
+        proxy_url = f"http://api.scraperapi.com?api_key={SCRAPER_API_KEY}&url={target_url}&render=true&keep_headers=true&cache=false"
     else:
         proxy_url = target_url
 
