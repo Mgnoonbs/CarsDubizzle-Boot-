@@ -55,14 +55,14 @@ def send_telegram_message(chat_id, text):
 # --- إدارة قاعدة البيانات ---
 conn = sqlite3.connect(DB_FILE)
 cursor = conn.cursor()
-cursor.execute("DROP TABLE IF EXISTS sent_ads")
+
+# إنشاء الجدول فقط إذا لم يكن موجوداً من قبل دون حذف البيانات القديمة
 cursor.execute("""
-    CREATE TABLE sent_ads (
+    CREATE TABLE IF NOT EXISTS sent_ads (
         ad_id TEXT PRIMARY KEY
     )
 """)
 conn.commit()
-
 
 def is_already_sent(ad_id):
     cursor.execute("SELECT 1 FROM sent_ads WHERE ad_id = ?", (str(ad_id),))
