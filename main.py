@@ -75,8 +75,9 @@ def mark_sent(ad_id):
 
 
 def fetch_dubizzle_ads():
-    target_url = "https://uae.dubizzle.com/ar/motors/used-cars/toyota/?sorting=date_desc&seller_type=OW"
-    
+    # الرابط الجديد الشامل لجميع البائعين (المالك والمعارض والتجار)
+    target_url = "https://uae.dubizzle.com/ar/motors/used-cars/toyota/?sorting=date_desc"
+
     if SCRAPER_API_KEY:
         print("جاري الاتصال عبر ScraperAPI...")
         proxy_url = f"http://api.scraperapi.com?api_key={SCRAPER_API_KEY}&url={target_url}&render=true&keep_headers=true"
@@ -185,14 +186,14 @@ def process_and_send():
             continue
 
         caption = (
-            f"🚘 *إعلان تويوتا جديد (من المالك مباشرة)*\n\n"
-            f"🚗 *السيارة:* {ad['title']}\n"
-            f"💰 *السعر:* {ad['price']} درهم\n"
-            f"📅 *الموديل:* {ad['year']}\n"
-            f"🛣️ *الممشى:* {ad['km']}\n"
-            f"📍 *الموقع:* {ad['location']}\n\n"
-            f"🔗 [اضغط هنا لمشاهدة تفاصيل الإعلان]({ad['link']})"
-        )
+                    f"🚘 *إعلان تويوتا جديد*\n\n"
+                    f"🚗 *السيارة:* {ad['title']}\n"
+                    f"💰 *السعر:* {ad['price']} درهم\n"
+                    f"📅 *الموديل:* {ad['year']}\n"
+                    f"🛣️ *الممشى:* {ad['km']}\n"
+                    f"📍 *الموقع:* {ad['location']}\n\n"
+                    f"🔗 [اضغط هنا لمشاهدة تفاصيل الإعلان]({ad['link']})"
+                )
 
         sent_success = False
         if ad["image"]:
