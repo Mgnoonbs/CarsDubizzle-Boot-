@@ -79,7 +79,7 @@ def fetch_dubizzle_ads():
     
     if SCRAPER_API_KEY:
         print("جاري الاتصال عبر ScraperAPI...")
-        proxy_url = f"http://api.scraperapi.com?api_key={SCRAPER_API_KEY}&url={target_url}&render=true"
+        proxy_url = f"http://api.scraperapi.com?api_key={SCRAPER_API_KEY}&url={target_url}&render=true&keep_headers=true"
     else:
         proxy_url = target_url
 
@@ -161,8 +161,7 @@ def fetch_dubizzle_ads():
                 "image": image_url,
                 "link": full_url
             })
-
-            if len(ads_list) >= 5:
+            if len(ads_list) >= 15:
                 break
 
     except Exception as e:
