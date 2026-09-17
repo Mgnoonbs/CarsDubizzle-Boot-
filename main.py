@@ -26,7 +26,7 @@ def send_telegram_photo(chat_id, photo_url, caption):
         response = requests.post(url, data=payload, timeout=20)
         
         if response.status_code != 200:
-            print(f"فشل إرسال الصورة، جاري الإرسال كنص فقط... ({response.text})")
+            print(f"فشل إرسال الصورة ({response.text})، جاري الإرسال كنص فقط...")
             return send_telegram_message(chat_id, caption)
             
         return True
@@ -92,7 +92,7 @@ def fetch_html_content(target_url):
         except Exception as e:
             print(f"حدث خطأ أثناء الاتصال بـ ScraperAPI: {e}")
 
-    # 2. التبديل للخدمة البديلة ScrapingAnt (مع تفعيل الخيارات المتقدمة لتشغيل الجافاسكربت)
+    # 2. التبديل للخدمة البديلة ScrapingAnt
     if SCRAPINGANT_API_KEY:
         print("جاري الاتصال عبر ScrapingAnt...")
         try:
@@ -100,8 +100,8 @@ def fetch_html_content(target_url):
             params = {
                 "x-api-key": SCRAPINGANT_API_KEY,
                 "url": target_url,
-                "browser": "true",  # تفعيل المتصفح الكامل لتشغيل الجافاسكربت
-                "proxy_country": "AE" # استخدام بروكسي إماراتي لضمان ظهور الإعلانات
+                "browser": "true",
+                "proxy_country": "AE"
             }
             res = requests.get(ant_api_url, params=params, timeout=90)
             print(f"حالة استجابة ScrapingAnt: {res.status_code}")
@@ -112,6 +112,35 @@ def fetch_html_content(target_url):
                 print(f"فشل ScrapingAnt (كود: {res.status_code}).")
         except Exception as e:
             print(f"حدث خطأ أثناء الاتصال بـ ScrapingAnt: {e}")
+
+    return None
+
+
+def extract_image_url(anchor_elem):
+    """دالة ذكية لاستخراج رابط الصورة حتى مع وجود Lazy Loading أو srcset"""
+    # 1. البحث في وسوم img
+    imgs = anchor_elem.find_all("img")
+    for img in imgs:
+        # فحص السمة srcset أولاً لأنها تتضمن الصورة عالية الدقة
+        srcset = img.get("srcset") or img.get("data-srcset")
+        if srcset:
+            urls = [u.strip().split()[0] for u in srcset.split(",") if u.strip()]
+            if urls:
+                return urls[-1]  # أخذ أعلى دقة متاحة
+        
+        # فحص المصادر العادية
+        src = img.get("src") or img.get("data-src")
+        if src and not src.startswith("data:image"):
+            return src
+
+    # 2. البحث في وسوم source داخل picture
+    sources = anchor_elem.find_all("source")
+    for source in sources:
+        srcset = source.get("srcset") or source.get("data-srcset")
+        if srcset:
+            urls = [u.strip().split()[0] for u in srcset.split(",") if u.strip()]
+            if urls:
+                return urls[-1]
 
     return None
 
@@ -142,7 +171,6 @@ def fetch_dubizzle_ads():
             if not href or href in seen_links:
                 continue
 
-            # استبعاد الروابط غير المتعلقة بالإعلانات المباشرة
             if href.endswith('/toyota/') or 'sorting=' in href:
                 continue
 
@@ -173,10 +201,8 @@ def fetch_dubizzle_ads():
             loc_elem = a.find(attrs={"data-testid": "listing-location"})
             location = loc_elem.text.strip() if loc_elem else "الإمارات"
 
-            image_url = None
-            img_tag = a.find("img")
-            if img_tag:
-                image_url = img_tag.get("src") or img_tag.get("data-src")
+            # استخراج الصورة بالدالة المحدثة
+            image_url = extract_image_url(a)
 
             full_url = href if href.startswith("http") else f"https://uae.dubizzle.com{href}"
 
@@ -197,6 +223,7 @@ def fetch_dubizzle_ads():
         print(f"خطأ أثناء تحليل البيانات: {e}")
 
     return ads_list
+
 
 def process_and_send():
     print("بدء جلب ومعالجة الإعلانات...")
@@ -224,8 +251,10 @@ def process_and_send():
 
         sent_success = False
         if ad["image"]:
+            print(f"جاري إرسال الإعلان مع الصورة: {ad['image']}")
             sent_success = send_telegram_photo(CHAT_ID, ad["image"], caption)
         else:
+            print("لم يتم العثور على صورة للإعلان، جاري الإرسال كنص فقط...")
             sent_success = send_telegram_message(CHAT_ID, caption)
 
         if sent_success:
