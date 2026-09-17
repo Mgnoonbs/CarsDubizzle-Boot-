@@ -8,6 +8,7 @@ from bs4 import BeautifulSoup
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
 SCRAPER_API_KEY = os.getenv("SCRAPER_API_KEY")
+SCRAPINGANT_API_KEY = os.getenv("SCRAPINGANT_API_KEY")
 
 DB_FILE = "sent_ads.db"
 
@@ -24,7 +25,6 @@ def send_telegram_photo(chat_id, photo_url, caption):
         }
         response = requests.post(url, data=payload, timeout=20)
         
-        # في حال فشل إرسال الصورة (مثل صلاحية الرابط)، يتم الإرسال كرسالة نصية كبديل
         if response.status_code != 200:
             print(f"فشل إرسال الصورة، جاري الإرسال كنص فقط... ({response.text})")
             return send_telegram_message(chat_id, caption)
@@ -56,13 +56,13 @@ def send_telegram_message(chat_id, text):
 conn = sqlite3.connect(DB_FILE)
 cursor = conn.cursor()
 
-# إنشاء الجدول فقط إذا لم يكن موجوداً من قبل دون حذف البيانات القديمة
 cursor.execute("""
     CREATE TABLE IF NOT EXISTS sent_ads (
         ad_id TEXT PRIMARY KEY
     )
 """)
 conn.commit()
+
 
 def is_already_sent(ad_id):
     cursor.execute("SELECT 1 FROM sent_ads WHERE ad_id = ?", (str(ad_id),))
@@ -74,27 +74,69 @@ def mark_sent(ad_id):
     conn.commit()
 
 
-def fetch_dubizzle_ads():
-    # الرابط الجديد الشامل لجميع البائعين (المالك والمعارض والتجار)
-    target_url = "https://uae.dubizzle.com/ar/motors/used-cars/toyota/?sorting=date_desc"
-
+def fetch_html_content(target_url):
+    """دالة مرنة تحاول الجلب عبر ScraperAPI أولاً وتنتقل إلى ScrapingAnt تلقائياً عند الفشل"""
+    
+    # 1. المحاولة عبر ScraperAPI
     if SCRAPER_API_KEY:
         print("جاري الاتصال عبر ScraperAPI...")
-        proxy_url = f"http://api.scraperapi.com?api_key={SCRAPER_API_KEY}&url={target_url}&render=true&keep_headers=true&cache=false"
-    else:
-        proxy_url = target_url
+        try:
+            proxy_url = f"http://api.scraperapi.com?api_key={SCRAPER_API_KEY}&url={target_url}&render=true&keep_headers=true&cache=false"
+            res = requests.get(proxy_url, timeout=60)
+            print(f"حالة استجابة ScraperAPI: {res.status_code}")
+            
+            if res.status_code == 200:
+                return res.text
+            else:
+                print(f"فشل ScraperAPI (كود: {res.status_code})، جاري التبديل للمزود البديل...")
+        except Exception as e:
+            print(f"حدث خطأ أثناء الاتصال بـ ScraperAPI: {e}")
+
+    # 2. التبديل للخدمة البديلة ScrapingAnt
+    if SCRAPINGANT_API_KEY:
+        print("جاري الاتصال عبر ScrapingAnt...")
+        try:
+            ant_api_url = "https://api.scrapingant.com/v2/general"
+            params = {
+                "x-api-key": SCRAPINGANT_API_KEY,
+                "url": target_url,
+                "browser": "false"
+            }
+            res = requests.get(ant_api_url, params=params, timeout=60)
+            print(f"حالة استجابة ScrapingAnt: {res.status_code}")
+            
+            if res.status_code == 200:
+                return res.text
+            else:
+                print(f"فشل ScrapingAnt أيضاً (كود: {res.status_code}).")
+        except Exception as e:
+            print(f"حدث خطأ أثناء الاتصال بـ ScrapingAnt: {e}")
+
+    # 3. المحاولة المباشرة في حال عدم وجود مفاتيح أو فشل جميع المزودات
+    if not SCRAPER_API_KEY and not SCRAPINGANT_API_KEY:
+        print("لا توجد مفاتيح API، جاري الاتصال المباشر...")
+        try:
+            res = requests.get(target_url, timeout=30)
+            if res.status_code == 200:
+                return res.text
+        except Exception as e:
+            print(f"حدث خطأ في الاتصال المباشر: {e}")
+
+    return None
+
+
+def fetch_dubizzle_ads():
+    target_url = "https://uae.dubizzle.com/ar/motors/used-cars/toyota/?sorting=date_desc"
+    html_content = fetch_html_content(target_url)
+
+    if not html_content:
+        print("فشل جلب محتوى الصفحة من كافة المزودات.")
+        return []
 
     ads_list = []
 
     try:
-        res = requests.get(proxy_url, timeout=60)
-        print(f"حالة الاستجابة: {res.status_code}")
-
-        if res.status_code != 200:
-            print(f"فشل جلب الصفحة: {res.status_code}")
-            return []
-
-        soup = BeautifulSoup(res.text, "html.parser")
+        soup = BeautifulSoup(html_content, "html.parser")
         
         listing_anchors = soup.find_all("a", attrs={"data-testid": lambda val: val and val.startswith("listing-")})
 
@@ -114,11 +156,9 @@ def fetch_dubizzle_ads():
             parts = [p for p in clean_link.split("/") if p]
             ad_id = parts[-1] if parts else str(hash(href))
 
-            # استخراج السعر
             price_elem = a.find(attrs={"data-testid": "listing-price"})
             price = price_elem.text.strip() if price_elem else "غير معلن"
 
-            # استخراج اسم وعنوان السيارة
             subheading = a.find(attrs={"data-testid": "subheading-text"})
             if subheading:
                 title = subheading.text.strip()
@@ -126,7 +166,6 @@ def fetch_dubizzle_ads():
                 headings = a.find_all(attrs={"data-testid": lambda v: v and v.startswith("heading-text-")})
                 title = " ".join([h.text.strip() for h in headings]) if headings else "تويوتا مستعملة"
 
-            # استخراج السنة والكيلومترات والموقع
             year_elem = a.find(attrs={"data-testid": "listing-year"})
             year = year_elem.text.strip() if year_elem else "غير محدد"
 
@@ -136,7 +175,6 @@ def fetch_dubizzle_ads():
             loc_elem = a.find(attrs={"data-testid": "listing-location"})
             location = loc_elem.text.strip() if loc_elem else "الإمارات"
 
-            # استخراج صورة السيارة الحقيقية من داخل معرض الصور المخصص
             image_url = None
             gallery_div = a.find(attrs={"data-testid": "image-gallery"})
             if gallery_div:
@@ -144,7 +182,6 @@ def fetch_dubizzle_ads():
                 if img_tag:
                     image_url = img_tag.get("src")
 
-            # fallback في حال عدم العثور عليها داخل image-gallery
             if not image_url:
                 img_tag = a.find("img", src=lambda s: s and "dbz-images.dubizzle.com" in s)
                 if img_tag:
@@ -186,14 +223,14 @@ def process_and_send():
             continue
 
         caption = (
-                    f"🚘 *إعلان تويوتا جديد*\n\n"
-                    f"🚗 *السيارة:* {ad['title']}\n"
-                    f"💰 *السعر:* {ad['price']} درهم\n"
-                    f"📅 *الموديل:* {ad['year']}\n"
-                    f"🛣️ *الممشى:* {ad['km']}\n"
-                    f"📍 *الموقع:* {ad['location']}\n\n"
-                    f"🔗 [اضغط هنا لمشاهدة تفاصيل الإعلان]({ad['link']})"
-                )
+            f"🚘 *إعلان تويوتا جديد*\n\n"
+            f"🚗 *السيارة:* {ad['title']}\n"
+            f"💰 *السعر:* {ad['price']} درهم\n"
+            f"📅 *الموديل:* {ad['year']}\n"
+            f"🛣️ *الممشى:* {ad['km']}\n"
+            f"📍 *الموقع:* {ad['location']}\n\n"
+            f"🔗 [اضغط هنا لمشاهدة تفاصيل الإعلان]({ad['link']})"
+        )
 
         sent_success = False
         if ad["image"]:
