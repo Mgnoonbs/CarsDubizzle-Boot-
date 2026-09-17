@@ -85,14 +85,14 @@ def fetch_html_content(target_url):
             res = requests.get(proxy_url, timeout=60)
             print(f"حالة استجابة ScraperAPI: {res.status_code}")
             
-            if res.status_code == 200:
+            if res.status_code == 200 and len(res.text) > 10000:
                 return res.text
             else:
                 print(f"فشل ScraperAPI (كود: {res.status_code})، جاري التبديل للمزود البديل...")
         except Exception as e:
             print(f"حدث خطأ أثناء الاتصال بـ ScraperAPI: {e}")
 
-    # 2. التبديل للخدمة البديلة ScrapingAnt
+    # 2. التبديل للخدمة البديلة ScrapingAnt (مع تفعيل الخيارات المتقدمة لتشغيل الجافاسكربت)
     if SCRAPINGANT_API_KEY:
         print("جاري الاتصال عبر ScrapingAnt...")
         try:
@@ -100,27 +100,18 @@ def fetch_html_content(target_url):
             params = {
                 "x-api-key": SCRAPINGANT_API_KEY,
                 "url": target_url,
-                "browser": "false"
+                "browser": "true",  # تفعيل المتصفح الكامل لتشغيل الجافاسكربت
+                "proxy_country": "AE" # استخدام بروكسي إماراتي لضمان ظهور الإعلانات
             }
-            res = requests.get(ant_api_url, params=params, timeout=60)
+            res = requests.get(ant_api_url, params=params, timeout=90)
             print(f"حالة استجابة ScrapingAnt: {res.status_code}")
             
             if res.status_code == 200:
                 return res.text
             else:
-                print(f"فشل ScrapingAnt أيضاً (كود: {res.status_code}).")
+                print(f"فشل ScrapingAnt (كود: {res.status_code}).")
         except Exception as e:
             print(f"حدث خطأ أثناء الاتصال بـ ScrapingAnt: {e}")
-
-    # 3. المحاولة المباشرة في حال عدم وجود مفاتيح أو فشل جميع المزودات
-    if not SCRAPER_API_KEY and not SCRAPINGANT_API_KEY:
-        print("لا توجد مفاتيح API، جاري الاتصال المباشر...")
-        try:
-            res = requests.get(target_url, timeout=30)
-            if res.status_code == 200:
-                return res.text
-        except Exception as e:
-            print(f"حدث خطأ في الاتصال المباشر: {e}")
 
     return None
 
@@ -138,16 +129,21 @@ def fetch_dubizzle_ads():
     try:
         soup = BeautifulSoup(html_content, "html.parser")
         
-        listing_anchors = soup.find_all("a", attrs={"data-testid": lambda val: val and val.startswith("listing-")})
+        # البحث بمرونة أوسع للروابط والإعلانات
+        listing_anchors = soup.find_all("a", href=lambda h: h and "/motors/used-cars/toyota/" in h and ("detail" in h or h.count('/') >= 6))
 
         if not listing_anchors:
-            listing_anchors = soup.select("div#listing-card-wrapper a[href*='/motors/used-cars/toyota/']")
+            listing_anchors = soup.find_all("a", attrs={"data-testid": lambda val: val and val.startswith("listing-")})
 
         seen_links = set()
 
         for a in listing_anchors:
             href = a.get("href", "")
             if not href or href in seen_links:
+                continue
+
+            # استبعاد الروابط غير المتعلقة بالإعلانات المباشرة
+            if href.endswith('/toyota/') or 'sorting=' in href:
                 continue
 
             seen_links.add(href)
@@ -157,14 +153,16 @@ def fetch_dubizzle_ads():
             ad_id = parts[-1] if parts else str(hash(href))
 
             price_elem = a.find(attrs={"data-testid": "listing-price"})
+            if not price_elem:
+                price_elem = a.find(text=lambda t: t and ("درهم" in t or "AED" in t))
             price = price_elem.text.strip() if price_elem else "غير معلن"
 
             subheading = a.find(attrs={"data-testid": "subheading-text"})
             if subheading:
                 title = subheading.text.strip()
             else:
-                headings = a.find_all(attrs={"data-testid": lambda v: v and v.startswith("heading-text-")})
-                title = " ".join([h.text.strip() for h in headings]) if headings else "تويوتا مستعملة"
+                headings = a.find_all(["h2", "h3", "span"], attrs={"data-testid": lambda v: v and "heading" in str(v)})
+                title = " ".join([h.text.strip() for h in headings]) if headings else a.get_text(" ", strip=True)[:50]
 
             year_elem = a.find(attrs={"data-testid": "listing-year"})
             year = year_elem.text.strip() if year_elem else "غير محدد"
@@ -176,22 +174,15 @@ def fetch_dubizzle_ads():
             location = loc_elem.text.strip() if loc_elem else "الإمارات"
 
             image_url = None
-            gallery_div = a.find(attrs={"data-testid": "image-gallery"})
-            if gallery_div:
-                img_tag = gallery_div.find("img", src=lambda s: s and "dbz-images.dubizzle.com" in s)
-                if img_tag:
-                    image_url = img_tag.get("src")
-
-            if not image_url:
-                img_tag = a.find("img", src=lambda s: s and "dbz-images.dubizzle.com" in s)
-                if img_tag:
-                    image_url = img_tag.get("src")
+            img_tag = a.find("img")
+            if img_tag:
+                image_url = img_tag.get("src") or img_tag.get("data-src")
 
             full_url = href if href.startswith("http") else f"https://uae.dubizzle.com{href}"
 
             ads_list.append({
                 "id": ad_id,
-                "title": title,
+                "title": title if title else "تويوتا مستعملة",
                 "price": price,
                 "year": year,
                 "km": km,
@@ -206,7 +197,6 @@ def fetch_dubizzle_ads():
         print(f"خطأ أثناء تحليل البيانات: {e}")
 
     return ads_list
-
 
 def process_and_send():
     print("بدء جلب ومعالجة الإعلانات...")
