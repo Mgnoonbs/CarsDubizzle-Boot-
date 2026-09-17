@@ -39,6 +39,8 @@ jobs:
           CHAT_ID: ${{ secrets.CHAT_ID }}
           SCRAPER_API_KEY: ${{ secrets.SCRAPER_API_KEY }}
           SCRAPINGANT_API_KEY: ${{ secrets.SCRAPINGANT_API_KEY }}
+          ZENSCRAPE_API_KEY: ${{ secrets.ZENSCRAPE_API_KEY }}
+          BRIGHTDATA_API_KEY: ${{ secrets.BRIGHTDATA_API_KEY }}
         run: python main.py
 
       - name: Save DB Cache

@@ -9,6 +9,8 @@ TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
 SCRAPER_API_KEY = os.getenv("SCRAPER_API_KEY")
 SCRAPINGANT_API_KEY = os.getenv("SCRAPINGANT_API_KEY")
+ZENSCRAPE_API_KEY = os.getenv("ZENSCRAPE_API_KEY")
+BRIGHTDATA_API_KEY = os.getenv("BRIGHTDATA_API_KEY")
 
 DB_FILE = "sent_ads.db"
 
@@ -75,24 +77,22 @@ def mark_sent(ad_id):
 
 
 def fetch_html_content(target_url):
-    """دالة مرنة تحاول الجلب عبر ScraperAPI أولاً وتنتقل إلى ScrapingAnt تلقائياً عند الفشل"""
+    """دالة مرنة تحاول الجلب عبر المزودات بالترتيب: ScraperAPI -> ScrapingAnt -> Zenscrape -> Bright Data"""
     
-    # 1. المحاولة عبر ScraperAPI
+    # 1. ScraperAPI
     if SCRAPER_API_KEY:
         print("جاري الاتصال عبر ScraperAPI...")
         try:
             proxy_url = f"http://api.scraperapi.com?api_key={SCRAPER_API_KEY}&url={target_url}&render=true&keep_headers=true&cache=false"
             res = requests.get(proxy_url, timeout=60)
             print(f"حالة استجابة ScraperAPI: {res.status_code}")
-            
             if res.status_code == 200 and len(res.text) > 10000:
                 return res.text
-            else:
-                print(f"فشل ScraperAPI (كود: {res.status_code})، جاري التبديل للمزود البديل...")
+            print(f"فشل ScraperAPI (كود: {res.status_code})، جاري التبديل...")
         except Exception as e:
-            print(f"حدث خطأ أثناء الاتصال بـ ScraperAPI: {e}")
+            print(f"خطأ في ScraperAPI: {e}")
 
-    # 2. التبديل للخدمة البديلة ScrapingAnt
+    # 2. ScrapingAnt
     if SCRAPINGANT_API_KEY:
         print("جاري الاتصال عبر ScrapingAnt...")
         try:
@@ -105,35 +105,68 @@ def fetch_html_content(target_url):
             }
             res = requests.get(ant_api_url, params=params, timeout=90)
             print(f"حالة استجابة ScrapingAnt: {res.status_code}")
-            
-            if res.status_code == 200:
+            if res.status_code == 200 and len(res.text) > 10000:
                 return res.text
-            else:
-                print(f"فشل ScrapingAnt (كود: {res.status_code}).")
+            print(f"فشل ScrapingAnt (كود: {res.status_code})، جاري التبديل...")
         except Exception as e:
-            print(f"حدث خطأ أثناء الاتصال بـ ScrapingAnt: {e}")
+            print(f"خطأ في ScrapingAnt: {e}")
+
+    # 3. Zenscrape
+    if ZENSCRAPE_API_KEY:
+        print("جاري الاتصال عبر Zenscrape...")
+        try:
+            zen_url = "https://app.zenscrape.com/api/v1/get"
+            headers = {"apikey": ZENSCRAPE_API_KEY}
+            params = {
+                "url": target_url,
+                "render_js": "true"
+            }
+            res = requests.get(zen_url, headers=headers, params=params, timeout=90)
+            print(f"حالة استجابة Zenscrape: {res.status_code}")
+            if res.status_code == 200 and len(res.text) > 10000:
+                return res.text
+            print(f"فشل Zenscrape (كود: {res.status_code})، جاري التبديل...")
+        except Exception as e:
+            print(f"خطأ في Zenscrape: {e}")
+
+    # 4. Bright Data Web Unlocker
+    if BRIGHTDATA_API_KEY:
+        print("جاري الاتصال عبر Bright Data...")
+        try:
+            bd_url = "https://api.brightdata.com/request"
+            headers = {
+                "Authorization": f"Bearer {BRIGHTDATA_API_KEY}",
+                "Content-Type": "application/json"
+            }
+            payload = {
+                "url": target_url,
+                "zone": "web_unlocker"
+            }
+            res = requests.post(bd_url, headers=headers, json=payload, timeout=90)
+            print(f"حالة استجابة Bright Data: {res.status_code}")
+            if res.status_code == 200 and len(res.text) > 10000:
+                return res.text
+            print(f"فشل Bright Data (كود: {res.status_code}).")
+        except Exception as e:
+            print(f"خطأ في Bright Data: {e}")
 
     return None
 
 
 def extract_image_url(anchor_elem):
-    """دالة ذكية لاستخراج رابط الصورة حتى مع وجود Lazy Loading أو srcset"""
-    # 1. البحث في وسوم img
+    """دالة استخراج رابط الصورة"""
     imgs = anchor_elem.find_all("img")
     for img in imgs:
-        # فحص السمة srcset أولاً لأنها تتضمن الصورة عالية الدقة
         srcset = img.get("srcset") or img.get("data-srcset")
         if srcset:
             urls = [u.strip().split()[0] for u in srcset.split(",") if u.strip()]
             if urls:
-                return urls[-1]  # أخذ أعلى دقة متاحة
+                return urls[-1]
         
-        # فحص المصادر العادية
         src = img.get("src") or img.get("data-src")
         if src and not src.startswith("data:image"):
             return src
 
-    # 2. البحث في وسوم source داخل picture
     sources = anchor_elem.find_all("source")
     for source in sources:
         srcset = source.get("srcset") or source.get("data-srcset")
@@ -158,7 +191,6 @@ def fetch_dubizzle_ads():
     try:
         soup = BeautifulSoup(html_content, "html.parser")
         
-        # البحث بمرونة أوسع للروابط والإعلانات
         listing_anchors = soup.find_all("a", href=lambda h: h and "/motors/used-cars/toyota/" in h and ("detail" in h or h.count('/') >= 6))
 
         if not listing_anchors:
@@ -201,7 +233,6 @@ def fetch_dubizzle_ads():
             loc_elem = a.find(attrs={"data-testid": "listing-location"})
             location = loc_elem.text.strip() if loc_elem else "الإمارات"
 
-            # استخراج الصورة بالدالة المحدثة
             image_url = extract_image_url(a)
 
             full_url = href if href.startswith("http") else f"https://uae.dubizzle.com{href}"
@@ -231,8 +262,11 @@ def process_and_send():
     print(f"تم العثور على {len(ads)} إعلان تويوتا حقيقي.")
 
     if not ads:
-        print("لم يتم العثور على إعلانات جديدة مطابقة للفلتر.")
+        print("لم يتم العثور على إعلانات من الموقع.")
+        send_telegram_message(CHAT_ID, "ℹ️ *تنبيه:* تعذر جلب الإعلانات في الوقت الحالي أو لا تتوفر نتائج جديدة.")
         return
+
+    new_ads_sent_count = 0
 
     for ad in ads:
         if is_already_sent(ad["id"]):
@@ -259,8 +293,14 @@ def process_and_send():
 
         if sent_success:
             mark_sent(ad["id"])
+            new_ads_sent_count += 1
             print(f"تم الإرسال بنجاح: {ad['title']}")
             time.sleep(2)
+
+    # إرسال إشعار في حال عدم وجود أي إعلانات جديدة غير مرسلة سابقاً
+    if new_ads_sent_count == 0:
+        print("جميع الإعلانات المجلوبة تم إرسالها سابقاً.")
+        send_telegram_message(CHAT_ID, "ℹ️ *لا توجد إعلانات جديدة:* تم الفحص بنجاح ولم يتم نشر أي إعلانات جديدة منذ الفحص السابق.")
 
 
 if __name__ == "__main__":
