@@ -154,26 +154,31 @@ def fetch_html_content(target_url):
 
 
 def extract_image_url(anchor_elem):
-    """دالة استخراج رابط الصورة"""
+    """دالة محسنة لاستخراج رابط صورة السيارة الحقيقي وتجاهل الأيكونات والشعارات"""
+    
+    # 1. البحث عن الصور التي تبدأ بنطاق صور دوبيزل المباشر (dbz-images.dubizzle.com)
     imgs = anchor_elem.find_all("img")
     for img in imgs:
-        srcset = img.get("srcset") or img.get("data-srcset")
+        src = img.get("src") or img.get("data-src") or ""
+        srcset = img.get("srcset") or img.get("data-srcset") or ""
+        
+        # التقاط الرابط من srcset إذا وجد
         if srcset:
             urls = [u.strip().split()[0] for u in srcset.split(",") if u.strip()]
-            if urls:
-                return urls[-1]
-        
-        src = img.get("src") or img.get("data-src")
-        if src and not src.startswith("data:image"):
+            for u in urls:
+                if "dbz-images.dubizzle.com" in u and not u.startswith("data:image"):
+                    return u
+
+        # التقاط الرابط المباشر من src
+        if "dbz-images.dubizzle.com" in src and not src.startswith("data:image"):
             return src
 
-    sources = anchor_elem.find_all("source")
-    for source in sources:
-        srcset = source.get("srcset") or source.get("data-srcset")
-        if srcset:
-            urls = [u.strip().split()[0] for u in srcset.split(",") if u.strip()]
-            if urls:
-                return urls[-1]
+    # 2. في حال عدم وجود نطاق dbz-images، استخدام الآلية الاحتياطية
+    for img in imgs:
+        src = img.get("src") or img.get("data-src")
+        # استبعاد أيكونات النظام وشعارات المعارض
+        if src and not src.startswith("data:image") and "static.dubizzle.com" not in src and "profiles" not in src:
+            return src
 
     return None
 
