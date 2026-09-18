@@ -3,6 +3,8 @@ import sqlite3
 import time
 import requests
 from bs4 import BeautifulSoup
+from datetime import datetime
+import pytz
 
 # --- إعدادات البوت والخدمات من متغيرات البيئة ---
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
@@ -13,6 +15,15 @@ ZENSCRAPE_API_KEY = os.getenv("ZENSCRAPE_API_KEY")
 BRIGHTDATA_API_KEY = os.getenv("BRIGHTDATA_API_KEY")
 
 DB_FILE = "sent_ads.db"
+
+# المنطقة الزمنية لدولة الإمارات (GST - UTC+4)
+UAE_TZ = pytz.timezone("Asia/Dubai")
+
+
+def get_uae_time_str():
+    """الحصول على الوقت الحالي بتوقيت الإمارات بصيغة واضحة"""
+    now = datetime.now(UAE_TZ)
+    return now.strftime("%Y-%m-%d %I:%M %p")
 
 
 def send_telegram_photo(chat_id, photo_url, caption):
@@ -155,28 +166,22 @@ def fetch_html_content(target_url):
 
 def extract_image_url(anchor_elem):
     """دالة محسنة لاستخراج رابط صورة السيارة الحقيقي وتجاهل الأيكونات والشعارات"""
-    
-    # 1. البحث عن الصور التي تبدأ بنطاق صور دوبيزل المباشر (dbz-images.dubizzle.com)
     imgs = anchor_elem.find_all("img")
     for img in imgs:
         src = img.get("src") or img.get("data-src") or ""
         srcset = img.get("srcset") or img.get("data-srcset") or ""
         
-        # التقاط الرابط من srcset إذا وجد
         if srcset:
             urls = [u.strip().split()[0] for u in srcset.split(",") if u.strip()]
             for u in urls:
                 if "dbz-images.dubizzle.com" in u and not u.startswith("data:image"):
                     return u
 
-        # التقاط الرابط المباشر من src
         if "dbz-images.dubizzle.com" in src and not src.startswith("data:image"):
             return src
 
-    # 2. في حال عدم وجود نطاق dbz-images، استخدام الآلية الاحتياطية
     for img in imgs:
         src = img.get("src") or img.get("data-src")
-        # استبعاد أيكونات النظام وشعارات المعارض
         if src and not src.startswith("data:image") and "static.dubizzle.com" not in src and "profiles" not in src:
             return src
 
@@ -267,11 +272,11 @@ def process_and_send():
     print(f"تم العثور على {len(ads)} إعلان تويوتا حقيقي.")
 
     if not ads:
-        print("لم يتم العثور على إعلانات من الموقع.")
-        send_telegram_message(CHAT_ID, "ℹ️ *تنبيه:* تعذر جلب الإعلانات في الوقت الحالي أو لا تتوفر نتائج جديدة.")
+        print("لم يتم العثور على إعلانات من الموقع (تم الإلغاء بدون إرسال تنبيه).")
         return
 
     new_ads_sent_count = 0
+    uae_time = get_uae_time_str()
 
     for ad in ads:
         if is_already_sent(ad["id"]):
@@ -284,7 +289,8 @@ def process_and_send():
             f"💰 *السعر:* {ad['price']} درهم\n"
             f"📅 *الموديل:* {ad['year']}\n"
             f"🛣️ *الممشى:* {ad['km']}\n"
-            f"📍 *الموقع:* {ad['location']}\n\n"
+            f"📍 *الموقع:* {ad['location']}\n"
+            f"⏰ *وقت الإشعار:* {uae_time} (توقيت الإمارات)\n\n"
             f"🔗 [اضغط هنا لمشاهدة تفاصيل الإعلان]({ad['link']})"
         )
 
@@ -302,10 +308,8 @@ def process_and_send():
             print(f"تم الإرسال بنجاح: {ad['title']}")
             time.sleep(2)
 
-    # إرسال إشعار في حال عدم وجود أي إعلانات جديدة غير مرسلة سابقاً
     if new_ads_sent_count == 0:
-        print("جميع الإعلانات المجلوبة تم إرسالها سابقاً.")
-        send_telegram_message(CHAT_ID, "ℹ️ *لا توجد إعلانات جديدة:* تم الفحص بنجاح ولم يتم نشر أي إعلانات جديدة منذ الفحص السابق.")
+        print("جميع الإعلانات المجلوبة تم إرسالها سابقاً (تم السكوت وعدم إرسال رسالة تليجرام).")
 
 
 if __name__ == "__main__":
