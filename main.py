@@ -141,6 +141,7 @@ def fetch_html_content(target_url):
             print(f"خطأ في Zenscrape: {e}")
 
     # 4. Bright Data Web Unlocker
+# 4. Bright Data Web Unlocker
     if BRIGHTDATA_API_KEY:
         print("جاري الاتصال عبر Bright Data...")
         try:
@@ -150,8 +151,9 @@ def fetch_html_content(target_url):
                 "Content-Type": "application/json"
             }
             payload = {
+                "zone": "web_unlocker",
                 "url": target_url,
-                "zone": "web_unlocker"
+                "format": "raw"
             }
             res = requests.post(bd_url, headers=headers, json=payload, timeout=90)
             print(f"حالة استجابة Bright Data: {res.status_code}")
@@ -160,7 +162,7 @@ def fetch_html_content(target_url):
             print(f"فشل Bright Data (كود: {res.status_code}).")
         except Exception as e:
             print(f"خطأ في Bright Data: {e}")
-
+            
     return None
 
 
