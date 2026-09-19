@@ -9,10 +9,12 @@ import pytz
 # --- إعدادات البوت والخدمات من متغيرات البيئة ---
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
+
+# المزودات المعتمدة (مع دعم حسابين ScrapingAnt)
 SCRAPER_API_KEY = os.getenv("SCRAPER_API_KEY")
 SCRAPINGANT_API_KEY = os.getenv("SCRAPINGANT_API_KEY")
+SCRAPINGANT_API_KEY2 = os.getenv("SCRAPINGANT_API_KEY2")
 ZENSCRAPE_API_KEY = os.getenv("ZENSCRAPE_API_KEY")
-BRIGHTDATA_API_KEY = os.getenv("BRIGHTDATA_API_KEY")
 
 DB_FILE = "sent_ads.db"
 
@@ -88,7 +90,7 @@ def mark_sent(ad_id):
 
 
 def fetch_html_content(target_url):
-    """دالة مرنة تحاول الجلب عبر المزودات بالترتيب: ScraperAPI -> ScrapingAnt -> Zenscrape -> Bright Data"""
+    """دالة مرنة تحاول الجلب عبر المزودات بالترتيب: ScraperAPI -> ScrapingAnt (1) -> ScrapingAnt (2) -> Zenscrape"""
     
     # 1. ScraperAPI
     if SCRAPER_API_KEY:
@@ -103,9 +105,9 @@ def fetch_html_content(target_url):
         except Exception as e:
             print(f"خطأ في ScraperAPI: {e}")
 
-    # 2. ScrapingAnt
+    # 2. ScrapingAnt (الحساب الأول)
     if SCRAPINGANT_API_KEY:
-        print("جاري الاتصال عبر ScrapingAnt...")
+        print("جاري الاتصال عبر ScrapingAnt (الحساب الأول)...")
         try:
             ant_api_url = "https://api.scrapingant.com/v2/general"
             params = {
@@ -115,14 +117,33 @@ def fetch_html_content(target_url):
                 "proxy_country": "AE"
             }
             res = requests.get(ant_api_url, params=params, timeout=90)
-            print(f"حالة استجابة ScrapingAnt: {res.status_code}")
+            print(f"حالة استجابة ScrapingAnt (1): {res.status_code}")
             if res.status_code == 200 and len(res.text) > 10000:
                 return res.text
-            print(f"فشل ScrapingAnt (كود: {res.status_code})، جاري التبديل...")
+            print(f"فشل ScrapingAnt (1) (كود: {res.status_code})، جاري التبديل...")
         except Exception as e:
-            print(f"خطأ في ScrapingAnt: {e}")
+            print(f"خطأ في ScrapingAnt (1): {e}")
 
-    # 3. Zenscrape
+    # 3. ScrapingAnt (الحساب الثاني الاحتياطي)
+    if SCRAPINGANT_API_KEY2:
+        print("جاري الاتصال عبر ScrapingAnt (الحساب الثاني)...")
+        try:
+            ant_api_url = "https://api.scrapingant.com/v2/general"
+            params = {
+                "x-api-key": SCRAPINGANT_API_KEY2,
+                "url": target_url,
+                "browser": "true",
+                "proxy_country": "AE"
+            }
+            res = requests.get(ant_api_url, params=params, timeout=90)
+            print(f"حالة استجابة ScrapingAnt (2): {res.status_code}")
+            if res.status_code == 200 and len(res.text) > 10000:
+                return res.text
+            print(f"فشل ScrapingAnt (2) (كود: {res.status_code})، جاري التبديل...")
+        except Exception as e:
+            print(f"خطأ في ScrapingAnt (2): {e}")
+
+    # 4. Zenscrape
     if ZENSCRAPE_API_KEY:
         print("جاري الاتصال عبر Zenscrape...")
         try:
@@ -136,33 +157,10 @@ def fetch_html_content(target_url):
             print(f"حالة استجابة Zenscrape: {res.status_code}")
             if res.status_code == 200 and len(res.text) > 10000:
                 return res.text
-            print(f"فشل Zenscrape (كود: {res.status_code})، جاري التبديل...")
+            print(f"فشل Zenscrape (كود: {res.status_code}).")
         except Exception as e:
             print(f"خطأ في Zenscrape: {e}")
 
-    # 4. Bright Data Web Unlocker
-# 4. Bright Data Web Unlocker
-    if BRIGHTDATA_API_KEY:
-        print("جاري الاتصال عبر Bright Data...")
-        try:
-            bd_url = "https://api.brightdata.com/request"
-            headers = {
-                "Authorization": f"Bearer {BRIGHTDATA_API_KEY}",
-                "Content-Type": "application/json"
-            }
-            payload = {
-                "zone": "web_unlocker",
-                "url": target_url,
-                "format": "raw"
-            }
-            res = requests.post(bd_url, headers=headers, json=payload, timeout=90)
-            print(f"حالة استجابة Bright Data: {res.status_code}")
-            if res.status_code == 200 and len(res.text) > 10000:
-                return res.text
-            print(f"فشل Bright Data (كود: {res.status_code}).")
-        except Exception as e:
-            print(f"خطأ في Bright Data: {e}")
-            
     return None
 
 
