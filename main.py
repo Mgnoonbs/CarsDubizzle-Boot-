@@ -10,11 +10,11 @@ import pytz
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
 
-# المزودات المعتمدة (مع دعم حسابين ScrapingAnt)
+# المزودات المعتمدة (حسابين ScraperAPI وحسابين ScrapingAnt)
 SCRAPER_API_KEY = os.getenv("SCRAPER_API_KEY")
+SCRAPER_API_KEY2 = os.getenv("SCRAPER_API_KEY2")
 SCRAPINGANT_API_KEY = os.getenv("SCRAPINGANT_API_KEY")
 SCRAPINGANT_API_KEY2 = os.getenv("SCRAPINGANT_API_KEY2")
-ZENSCRAPE_API_KEY = os.getenv("ZENSCRAPE_API_KEY")
 
 DB_FILE = "sent_ads.db"
 
@@ -90,22 +90,35 @@ def mark_sent(ad_id):
 
 
 def fetch_html_content(target_url):
-    """دالة مرنة تحاول الجلب عبر المزودات بالترتيب: ScraperAPI -> ScrapingAnt (1) -> ScrapingAnt (2) -> Zenscrape"""
+    """دالة مرنة تحاول الجلب عبر المزودات بالترتيب: ScraperAPI (1) -> ScraperAPI (2) -> ScrapingAnt (1) -> ScrapingAnt (2)"""
     
-    # 1. ScraperAPI
+    # 1. ScraperAPI (الحساب الأول)
     if SCRAPER_API_KEY:
-        print("جاري الاتصال عبر ScraperAPI...")
+        print("جاري الاتصال عبر ScraperAPI (الحساب الأول)...")
         try:
             proxy_url = f"http://api.scraperapi.com?api_key={SCRAPER_API_KEY}&url={target_url}&render=true&keep_headers=true&cache=false"
             res = requests.get(proxy_url, timeout=60)
-            print(f"حالة استجابة ScraperAPI: {res.status_code}")
+            print(f"حالة استجابة ScraperAPI (1): {res.status_code}")
             if res.status_code == 200 and len(res.text) > 10000:
                 return res.text
-            print(f"فشل ScraperAPI (كود: {res.status_code})، جاري التبديل...")
+            print(f"فشل ScraperAPI (1) (كود: {res.status_code})، جاري التبديل...")
         except Exception as e:
-            print(f"خطأ في ScraperAPI: {e}")
+            print(f"خطأ في ScraperAPI (1): {e}")
 
-    # 2. ScrapingAnt (الحساب الأول)
+    # 2. ScraperAPI (الحساب الثاني)
+    if SCRAPER_API_KEY2:
+        print("جاري الاتصال عبر ScraperAPI (الحساب الثاني)...")
+        try:
+            proxy_url = f"http://api.scraperapi.com?api_key={SCRAPER_API_KEY2}&url={target_url}&render=true&keep_headers=true&cache=false"
+            res = requests.get(proxy_url, timeout=60)
+            print(f"حالة استجابة ScraperAPI (2): {res.status_code}")
+            if res.status_code == 200 and len(res.text) > 10000:
+                return res.text
+            print(f"فشل ScraperAPI (2) (كود: {res.status_code})، جاري التبديل...")
+        except Exception as e:
+            print(f"خطأ في ScraperAPI (2): {e}")
+
+    # 3. ScrapingAnt (الحساب الأول)
     if SCRAPINGANT_API_KEY:
         print("جاري الاتصال عبر ScrapingAnt (الحساب الأول)...")
         try:
@@ -124,7 +137,7 @@ def fetch_html_content(target_url):
         except Exception as e:
             print(f"خطأ في ScrapingAnt (1): {e}")
 
-    # 3. ScrapingAnt (الحساب الثاني الاحتياطي)
+    # 4. ScrapingAnt (الحساب الثاني الاحتياطي)
     if SCRAPINGANT_API_KEY2:
         print("جاري الاتصال عبر ScrapingAnt (الحساب الثاني)...")
         try:
@@ -142,24 +155,6 @@ def fetch_html_content(target_url):
             print(f"فشل ScrapingAnt (2) (كود: {res.status_code})، جاري التبديل...")
         except Exception as e:
             print(f"خطأ في ScrapingAnt (2): {e}")
-
-    # 4. Zenscrape
-  # 4. Zenscrape (طريقة Proxy Mode لتجاوز حماية Cloudflare)
-    if ZENSCRAPE_API_KEY:
-        print("جاري الاتصال عبر Zenscrape (Proxy Mode)...")
-        try:
-            proxy_url = f"http://{ZENSCRAPE_API_KEY}:@proxy-server.zenscrape.com:8282"
-            proxies = {
-                "http": proxy_url,
-                "https": proxy_url,
-            }
-            res = requests.get(target_url, proxies=proxies, timeout=90)
-            print(f"حالة استجابة Zenscrape: {res.status_code}")
-            if res.status_code == 200 and len(res.text) > 10000:
-                return res.text
-            print(f"فشل Zenscrape (كود: {res.status_code}).")
-        except Exception as e:
-            print(f"خطأ في Zenscrape: {e}")
             
     return None
 
