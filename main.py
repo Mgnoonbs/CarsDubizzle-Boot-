@@ -144,23 +144,23 @@ def fetch_html_content(target_url):
             print(f"خطأ في ScrapingAnt (2): {e}")
 
     # 4. Zenscrape
+  # 4. Zenscrape (طريقة Proxy Mode لتجاوز حماية Cloudflare)
     if ZENSCRAPE_API_KEY:
-        print("جاري الاتصال عبر Zenscrape...")
+        print("جاري الاتصال عبر Zenscrape (Proxy Mode)...")
         try:
-            zen_url = "https://app.zenscrape.com/api/v1/get"
-            headers = {"apikey": ZENSCRAPE_API_KEY}
-            params = {
-                "url": target_url,
-                "render_js": "true"
+            proxy_url = f"http://{ZENSCRAPE_API_KEY}:@proxy-server.zenscrape.com:8282"
+            proxies = {
+                "http": proxy_url,
+                "https": proxy_url,
             }
-            res = requests.get(zen_url, headers=headers, params=params, timeout=90)
+            res = requests.get(target_url, proxies=proxies, timeout=90)
             print(f"حالة استجابة Zenscrape: {res.status_code}")
             if res.status_code == 200 and len(res.text) > 10000:
                 return res.text
             print(f"فشل Zenscrape (كود: {res.status_code}).")
         except Exception as e:
             print(f"خطأ في Zenscrape: {e}")
-
+            
     return None
 
 
