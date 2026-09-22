@@ -102,32 +102,37 @@ def fetch_with_fallback(target_url, target_name):
         try:
             print(f"[{get_uae_time()}] [{target_name}] محاولة الجلب عبر ScraperAPI...")
             res = requests.get(proxy_url, timeout=90)
-            if res.status_code == 200:
+            if res.status_code == 200 and "Pardon Our Interruption" not in res.text:
                 print(f"[{get_uae_time()}] نجح الجلب عبر ScraperAPI بنجاح.")
                 return res.text
             else:
                 print(
-                    f"[{get_uae_time()}] ScraperAPI فشل برمز استجابة:"
+                    f"[{get_uae_time()}] ScraperAPI فشل أو أعاد حماية (رمز/محتوى):"
                     f" {res.status_code}"
                 )
         except Exception as e:
             print(f"[{get_uae_time()}] خطأ في الاتصال بـ ScraperAPI: {e}")
         time.sleep(3)
 
-    # 2. المحاولة عبر مفاتيح ScrapingAnt
+    # 2. المحاولة عبر مفاتيح ScrapingAnt (مع تحسين البروكسي والدولة والانتظار)
     for idx, key in enumerate(SCRAPINGANT_KEYS, start=1):
-        proxy_url = f"https://api.scrapingant.com/v2/general?url={requests.utils.quote(target_url)}&x-api-key={key}&browser=true&wait_for_selector=a"
+        proxy_url = f"https://api.scrapingant.com/v2/general?url={requests.utils.quote(target_url)}&x-api-key={key}&browser=true&country_code=ae&wait_for_selector=article"
         try:
             print(
-                f"[{get_uae_time()}] [{target_name}] التحويل التلقائي إلى"
+                f"[{get_uae_time()}] [{target_name}] المحاولة عبر"
                 f" ScrapingAnt ({idx})..."
             )
             res = requests.get(proxy_url, timeout=90)
+            if res.status_codes == 200 if hasattr(res, 'status_codes') else res.status_code == 200:
+                pass
             if res.status_code == 200:
-                print(
-                    f"[{get_uae_time()}] نجح الجلب عبر ScrapingAnt ({idx}) بنجاح."
-                )
-                return res.text
+                if "Pardon Our Interruption" not in res.text and "cloudflare" not in res.text[:2000].lower():
+                    print(
+                        f"[{get_uae_time()}] نجح الجلب عبر ScrapingAnt ({idx}) بنجاح."
+                    )
+                    return res.text
+                else:
+                    print(f"[{get_uae_time()}] ScrapingAnt ({idx}) اصطدم بحماية Cloudflare (Pardon Our Interruption).")
             else:
                 print(
                     f"[{get_uae_time()}] ScrapingAnt ({idx}) فشل برمز استجابة:"
@@ -140,7 +145,6 @@ def fetch_with_fallback(target_url, target_name):
         time.sleep(3)
 
     return None
-
 
 def fetch_dubizzle_ads_for_target(target_info):
     target_name = target_info["name"]
