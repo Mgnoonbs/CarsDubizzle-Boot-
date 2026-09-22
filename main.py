@@ -142,130 +142,144 @@ def fetch_with_fallback(target_url, target_name):
     return None
 
 def fetch_dubizzle_ads_for_target(target_info):
-    target_name = target_info["name"]
-    target_url = target_info["url"]
+        target_name = target_info["name"]
+        target_url = target_info["url"]
 
-    print(f"\n--- [{get_uae_time()}] جاري فحص: {target_name} ---")
+        print(f"\n--- [{get_uae_time()}] جاري فحص: {target_name} ---")
 
-    html_content = fetch_with_fallback(target_url, target_name)
+        html_content = fetch_with_fallback(target_url, target_name)
 
-    if not html_content:
-        print(f"فشل جلب الصفحة لجميع المنصات المتاحة لـ {target_name}")
-        return []
+        if not html_content:
+            print(f"فشل جلب الصفحة لجميع المنصات المتاحة لـ {target_name}")
+            return []
 
-    ads_list = []
-    try:
-        soup = BeautifulSoup(html_content, "html.parser")
+        ads_list = []
+        try:
+            soup = BeautifulSoup(html_content, "html.parser")
 
-        # طباعة عنوان الصفحة للتشخيص في حال صفر نتائج
-        page_title = soup.title.string.strip() if soup.title else "بدون عنوان"
-        print(f"[{get_uae_time()}] عنوان الصفحة المستلمة: {page_title[:60]}")
+            # طباعة عنوان الصفحة للتشخيص في حال صفر نتائج
+            page_title = soup.title.string.strip() if soup.title else "بدون عنوان"
+            print(f"[{get_uae_time()}] عنوان الصفحة المستلمة: {page_title[:60]}")
 
-        # محددات البحث الأساسية
-        listing_anchors = soup.find_all(
-            "a", attrs={"data-testid": lambda val: val and val.startswith("listing-")}
-        )
-
-        if not listing_anchors:
-            listing_anchors = soup.select("div#listing-card-wrapper a")
-
-        # محدد احتياطي أوسع لروابط السيارات
-        if not listing_anchors:
-            listing_anchors = [
-                a
-                for a in soup.find_all("a", href=True)
-                if "/used-cars/" in a["href"] and len(a["href"].split("/")) > 4
-            ]
-
-        seen_links = set()
-
-        for a in listing_anchors:
-            href = a.get("href", "")
-            if not href or href in seen_links:
-                continue
-
-            if "/motors/" not in href and "/used-cars/" not in href:
-                continue
-
-            seen_links.add(href)
-
-            clean_link = href.split("?")[0].rstrip("/")
-            parts = [p for p in clean_link.split("/") if p]
-            ad_id = parts[-1] if parts else str(hash(href))
-
-            # البحث عن البطاقة الأب الأوسع (article أو حاوية الإعلان)
-            card_parent = (
-                a.find_parent("article")
-                or a.find_parent("div", class_=lambda c: c and ("card" in str(c).lower() or "listing" in str(c).lower()))
-                or a.find_parent("li")
-                or a
+            # محددات البحث الأساسية
+            listing_anchors = soup.find_all(
+                "a", attrs={"data-testid": lambda val: val and val.startswith("listing-")}
             )
 
-            price_elem = card_parent.find(attrs={"data-testid": "listing-price"}) or card_parent.find(string=lambda s: s and "AED" in str(s))
-            price = price_elem.text.strip() if hasattr(price_elem, 'text') else (str(price_elem).strip() if price_elem else "غير معلن")
+            if not listing_anchors:
+                listing_anchors = soup.select("div#listing-card-wrapper a")
 
-            subheading = card_parent.find(attrs={"data-testid": "subheading-text"})
-            if subheading:
-                title = subheading.text.strip()
-            else:
-                headings = card_parent.find_all(
-                    attrs={"data-testid": lambda v: v and v.startswith("heading-text-")}
+            # محدد احتياطي أوسع لروابط السيارات
+            if not listing_anchors:
+                listing_anchors = [
+                    a
+                    for a in soup.find_all("a", href=True)
+                    if "/used-cars/" in a["href"] and len(a["href"].split("/")) > 4
+                ]
+
+            seen_links = set()
+
+            for a in listing_anchors:
+                href = a.get("href", "")
+                if not href or href in seen_links:
+                    continue
+
+                if "/motors/" not in href and "/used-cars/" not in href:
+                    continue
+
+                seen_links.add(href)
+
+                clean_link = href.split("?")[0].rstrip("/")
+                parts = [p for p in clean_link.split("/") if p]
+                ad_id = parts[-1] if parts else str(hash(href))
+
+                # البحث عن البطاقة الأب الأوسع
+                card_parent = (
+                    a.find_parent("article")
+                    or a.find_parent("div", class_=lambda c: c and ("card" in str(c).lower() or "listing" in str(c).lower()))
+                    or a.find_parent("li")
+                    or a
                 )
-                title = (
-                    " ".join([h.text.strip() for h in headings])
-                    if headings
-                    else (a.get("title") or target_name)
-                )
 
-            year_elem = card_parent.find(attrs={"data-testid": "listing-year"})
-            year = year_elem.text.strip() if year_elem else "غير محدد"
+                price_elem = card_parent.find(attrs={"data-testid": "listing-price"}) or card_parent.find(string=lambda s: s and "AED" in str(s))
+                price = price_elem.text.strip() if hasattr(price_elem, 'text') else (str(price_elem).strip() if price_elem else "غير معلن")
 
-            km_elem = card_parent.find(attrs={"data-testid": "listing-kilometers"})
-            km = km_elem.text.strip() if km_elem else "غير محدد"
+                subheading = card_parent.find(attrs={"data-testid": subheading_text := "subheading-text"})
+                if subheading:
+                    title = subheading.text.strip()
+                else:
+                    headings = card_parent.find_all(
+                        attrs={"data-testid": lambda v: v and v.startswith("heading-text-")}
+                    )
+                    title = (
+                        " ".join([h.text.strip() for h in headings])
+                        if headings
+                        else (a.get("title") or target_name)
+                    )
 
-            loc_elem = card_parent.find(attrs={"data-testid": "listing-location"})
-            location = loc_elem.text.strip() if loc_elem else "الإمارات"
+                year_elem = card_parent.find(attrs={"data-testid": "listing-year"})
+                year = year_elem.text.strip() if year_elem else "غير محدد"
 
-            image_url = None
-            img_tag = card_parent.find("img")
-            if img_tag:
-                image_url = (
-                    img_tag.get("src")
-                    or img_tag.get("data-src")
-                    or img_tag.get("data-original")
-                )
-                if image_url and image_url.startswith("//"):
-                    image_url = f"https:{image_url}"
+                km_elem = card_parent.find(attrs={"data-testid": "listing-kilometers"})
+                km = km_elem.text.strip() if km_elem else "غير محدد"
 
-            # تنظيف رابط الصورة والتحقق منه
-            if image_url and not any(
-                d in image_url for d in ["dbz-images", "dubizzle", "images", "http"]
-            ):
+                loc_elem = card_parent.find(attrs={"data-testid": "listing-location"})
+                location = loc_elem.text.strip() if loc_elem else "الإمارات"
+
+                # استخراج الصورة بدقة بناءً على بنية معرض دوبيزل المحدثة
                 image_url = None
+                gallery = card_parent.find(attrs={"data-testid": "image-gallery"})
+                target_container = gallery if gallery else card_parent
 
-            full_url = (
-                href if href.startswith("http") else f"https://uae.dubizzle.com{href}"
-            )
+                # بحث عن أي img تحتوي على dbz-images أو srcset أو data-src
+                for img in target_container.find_all("img"):
+                    src = (
+                        img.get("src")
+                        or img.get("data-src")
+                        or img.get("data-original")
+                    )
+                    # تجاهل الأيقونات والنقاط الصغيرة (dots / static assets)
+                    if src and "dbz-images.dubizzle.com" in src:
+                        image_url = src
+                        if image_url.startswith("//"):
+                            image_url = f"https:{image_url}"
+                        break
 
-            ads_list.append({
-                "id": ad_id,
-                "category": target_name,
-                "title": title,
-                "price": price,
-                "year": year,
-                "km": km,
-                "location": location,
-                "image": image_url,
-                "link": full_url,
-            })
+                # احتياطي عام لو لم يجب gallery لكن وجد رابط صورة سيارة صالح
+                if not image_url:
+                    for img in card_parent.find_all("img"):
+                        src = img.get("src", "")
+                        alt = img.get("alt", "")
+                        if "dbz-images" in src and "chevron" not in src and "dot" not in alt.lower():
+                            image_url = src
+                            if image_url.startswith("//"):
+                                image_url = f"https:{image_url}"
+                            break
 
-            if len(ads_list) >= 5:
-                break
+                full_url = (
+                    href if href.startswith("http") else f"https://uae.dubizzle.com{href}"
+                )
 
-    except Exception as e:
-        print(f"خطأ أثناء تحليل البيانات لـ {target_name}: {e}")
+                ads_list.append({
+                    "id": ad_id,
+                    "category": target_name,
+                    "title": title,
+                    "price": price,
+                    "year": year,
+                    "km": km,
+                    "location": location,
+                    "image": image_url,
+                    "link": full_url,
+                })
 
-    return ads_list
+                if len(ads_list) >= 5:
+                    break
+
+        except Exception as e:
+            print(f"خطأ أثناء تحليل البيانات لـ {target_name}: {e}")
+
+        return ads_list
+
 def process_and_send():
     print(
         f"[{get_uae_time()}] بدء جلب ومعالجة الإعلانات للفئات المستهدفة (توقيت"
