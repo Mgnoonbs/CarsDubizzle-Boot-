@@ -1,11 +1,9 @@
 name: Dubizzle Toyota Scraper Bot
 
 on:
-  schedule:
-    - cron: '*/5 * * * *'
-  workflow_dispatch:
   repository_dispatch:
     types: [cron_trigger]
+  workflow_dispatch: # يتيح لك التشغيل اليدوي للتجربة من موقع GitHub
 
 jobs:
   run-scraper:
@@ -19,14 +17,6 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-
-      - name: Restore DB Cache
-        uses: actions/cache@v4
-        with:
-          path: sent_ads.db
-          key: sent-ads-db-${{ runner.os }}-${{ github.run_id }}
-          restore-keys: |
-            sent-ads-db-${{ runner.os }}-
 
       - name: Install Dependencies
         run: |
@@ -43,9 +33,11 @@ jobs:
           SCRAPINGANT_API_KEY2: ${{ secrets.SCRAPINGANT_API_KEY2 }}
         run: python main.py
 
-      - name: Save DB Cache
-        uses: actions/cache@v4
+      - name: Commit and Push Updated DB
         if: always()
-        with:
-          path: sent_ads.db
-          key: sent-ads-db-${{ runner.os }}-${{ github.run_id }}
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add sent_ads.db
+          git commit -m "update sent_ads.db [skip ci]" || exit 0
+          git push
