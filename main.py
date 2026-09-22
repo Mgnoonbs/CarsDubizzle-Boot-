@@ -30,6 +30,16 @@ def get_uae_time_str():
     return now.strftime("%Y-%m-%d %I:%M %p")
 
 
+def escape_markdown(text):
+    """تهريب الرموز الخاصة بـ Markdown لمنع أخطاء التنسيق في Telegram"""
+    if not text:
+        return ""
+    # الرموز الأساسية التي قد تسبب مشاكل في ParseMode.MARKDOWN
+    for char in ['_', '*', '`', '[']:
+        text = str(text).replace(char, f"\\{char}")
+    return text
+
+
 def send_telegram_photo(chat_id, photo_url, caption):
     """إرسال صورة مع النص المصاحب عبر تليجرام"""
     try:
@@ -70,25 +80,33 @@ def send_telegram_message(chat_id, text):
 
 
 # --- إدارة قاعدة البيانات ---
-conn = sqlite3.connect(DB_FILE)
-cursor = conn.cursor()
-
-cursor.execute("""
-    CREATE TABLE IF NOT EXISTS sent_ads (
-        ad_id TEXT PRIMARY KEY
-    )
-""")
-conn.commit()
+def init_db():
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS sent_ads (
+            ad_id TEXT PRIMARY KEY
+        )
+    """)
+    conn.commit()
+    conn.close()
 
 
 def is_already_sent(ad_id):
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
     cursor.execute("SELECT 1 FROM sent_ads WHERE ad_id = ?", (str(ad_id),))
-    return cursor.fetchone() is not None
+    row = cursor.fetchone()
+    conn.close()
+    return row is not None
 
 
 def mark_sent(ad_id):
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
     cursor.execute("INSERT OR IGNORE INTO sent_ads (ad_id) VALUES (?)", (str(ad_id),))
     conn.commit()
+    conn.close()
 
 
 def fetch_html_content(target_url):
@@ -172,8 +190,13 @@ def extract_ads_from_json(soup):
         data = json.loads(script_tag.string)
         page_props = data.get("props", {}).get("pageProps", {})
         
-        # الوصول لقائمة الإعلانات بداخل استجابة الصفحة
-        results = page_props.get("results", []) or page_props.get("listings", []) or page_props.get("initialState", {}).get("listings", [])
+        # الوصول لقائمة الإعلانات بداخل استجابة الصفحة مع مسارات متعددة مرنة
+        results = (
+            page_props.get("results", []) 
+            or page_props.get("listings", []) 
+            or page_props.get("initialState", {}).get("listings", [])
+            or page_props.get("searchResult", {}).get("results", [])
+        )
 
         for item in results:
             if not isinstance(item, dict):
@@ -205,11 +228,11 @@ def extract_ads_from_json(soup):
             if ad_id and full_url:
                 ads.append({
                     "id": ad_id,
-                    "title": title,
-                    "price": price,
-                    "year": year,
-                    "km": km,
-                    "location": location,
+                    "title": escape_markdown(title),
+                    "price": escape_markdown(price),
+                    "year": escape_markdown(year),
+                    "km": escape_markdown(km),
+                    "location": escape_markdown(location),
                     "seller_type": "المالك المباشر / المالك الأول",
                     "image": image_url,
                     "link": full_url
@@ -258,7 +281,7 @@ def fetch_dubizzle_ads():
                 parts = [p for p in clean_link.split("/") if p]
                 ad_id = parts[-1] if parts else str(hash(href))
 
-                price_elem = a.find(attrs={"data-testid": "listing-price"}) or a.find(text=lambda t: t and ("درهم" in t or "AED" in t))
+                price_elem = a.find(attrs={"data-testid": "listing-price"}) or a.find(string=lambda t: t and ("درهم" in t or "AED" in t))
                 price = price_elem.text.strip() if price_elem else "غير معلن"
 
                 subheading = a.find(attrs={"data-testid": "subheading-text"})
@@ -292,11 +315,11 @@ def fetch_dubizzle_ads():
 
                 ads_list.append({
                     "id": ad_id,
-                    "title": title if title else "تويوتا مستعملة",
-                    "price": price,
-                    "year": year,
-                    "km": km,
-                    "location": location,
+                    "title": escape_markdown(title) if title else "تويوتا مستعملة",
+                    "price": escape_markdown(price),
+                    "year": escape_markdown(year),
+                    "km": escape_markdown(km),
+                    "location": escape_markdown(location),
                     "seller_type": badge_text,
                     "image": image_url,
                     "link": full_url
@@ -311,6 +334,7 @@ def fetch_dubizzle_ads():
 
 
 def process_and_send():
+    init_db()
     print("بدء جلب ومعالجة الإعلانات...")
     ads = fetch_dubizzle_ads()
     print(f"تم العثور على {len(ads)} إعلان تويوتا حقيقي.")
