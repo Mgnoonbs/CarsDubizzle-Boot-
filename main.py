@@ -26,6 +26,9 @@ SCRAPINGANT_KEYS = [
 ]
 SCRAPINGANT_KEYS = [k for k in SCRAPINGANT_KEYS if k]
 
+# متغير لتتبع آخر مؤشر مفتاح ناجح لـ ScrapingAnt (يبدأ بـ 0 يعني لا يوجد بعد)
+LAST_WORKING_SCRAPINGANT_IDX = 0
+
 DB_FILE = "sent_ads.db"
 
 # --- الرابط المستهدف (تويوتا فقط) ---
@@ -96,6 +99,8 @@ def mark_sent(ad_id):
 
 
 def fetch_with_fallback(target_url, target_name):
+    global LAST_WORKING_SCRAPINGANT_IDX
+
     # 1. المحاولة عبر ScraperAPI
     if SCRAPER_API_KEY:
         proxy_url = f"http://api.scraperapi.com?api_key={SCRAPER_API_KEY}&url={target_url}&render=true&country_code=ae"
@@ -114,8 +119,13 @@ def fetch_with_fallback(target_url, target_name):
             print(f"[{get_uae_time()}] خطأ في الاتصال بـ ScraperAPI: {e}")
         time.sleep(3)
 
-    # 2. المحاولة عبر مفاتيح ScrapingAnt (مع تحسين البروكسي والدولة والانتظار)
-    for idx, key in enumerate(SCRAPINGANT_KEYS, start=1):
+    # 2. ترتيب مفاتبح ScrapingAnt لتبدأ بآخر مفتاح نجح مسبقاً إن توفر
+    indexed_keys = list(enumerate(SCRAPINGANT_KEYS, start=1))
+    if LAST_WORKING_SCRAPINGANT_IDX > 0:
+        indexed_keys.sort(key=lambda x: 0 if x[0] == LAST_WORKING_SCRAPINGANT_IDX else 1)
+
+    # المحاولة عبر مفاتيح ScrapingAnt مرتبطة بالأولويات
+    for idx, key in indexed_keys:
         proxy_url = f"https://api.scrapingant.com/v2/general?url={requests.utils.quote(target_url)}&x-api-key={key}&browser=true&country_code=ae&wait_for_selector=article"
         try:
             print(
@@ -123,16 +133,20 @@ def fetch_with_fallback(target_url, target_name):
                 f" ScrapingAnt ({idx})..."
             )
             res = requests.get(proxy_url, timeout=90)
-            if res.status_codes == 200 if hasattr(res, 'status_codes') else res.status_code == 200:
-                pass
             if res.status_code == 200:
-                if "Pardon Our Interruption" not in res.text and "cloudflare" not in res.text[:2000].lower():
+                if (
+                    "Pardon Our Interruption" not in res.text
+                    and "cloudflare" not in res.text[:2000].lower()
+                ):
                     print(
                         f"[{get_uae_time()}] نجح الجلب عبر ScrapingAnt ({idx}) بنجاح."
                     )
+                    LAST_WORKING_SCRAPINGANT_IDX = idx
                     return res.text
                 else:
-                    print(f"[{get_uae_time()}] ScrapingAnt ({idx}) اصطدم بحماية Cloudflare (Pardon Our Interruption).")
+                    print(
+                        f"[{get_uae_time()}] ScrapingAnt ({idx}) اصطدم بحماية Cloudflare (Pardon Our Interruption)."
+                    )
             else:
                 print(
                     f"[{get_uae_time()}] ScrapingAnt ({idx}) فشل برمز استجابة:"
@@ -145,6 +159,7 @@ def fetch_with_fallback(target_url, target_name):
         time.sleep(3)
 
     return None
+
 
 def fetch_dubizzle_ads_for_target(target_info):
     target_name = target_info["name"]
@@ -197,20 +212,33 @@ def fetch_dubizzle_ads_for_target(target_info):
 
             card_parent = (
                 a.find_parent("article")
-                or a.find_parent("div", class_=lambda c: c and ("card" in str(c).lower() or "listing" in str(c).lower()))
+                or a.find_parent(
+                    "div",
+                    class_=lambda c: c
+                    and ("card" in str(c).lower() or "listing" in str(c).lower()),
+                )
                 or a.find_parent("li")
                 or a
             )
 
-            price_elem = card_parent.find(attrs={"data-testid": "listing-price"}) or card_parent.find(string=lambda s: s and "AED" in str(s))
-            price = price_elem.text.strip() if hasattr(price_elem, 'text') else (str(price_elem).strip() if price_elem else "غير معلن")
+            price_elem = card_parent.find(
+                attrs={"data-testid": "listing-price"}
+            ) or card_parent.find(string=lambda s: s and "AED" in str(s))
+            price = (
+                price_elem.text.strip()
+                if hasattr(price_elem, "text")
+                else (str(price_elem).strip() if price_elem else "غير معلن")
+            )
 
             subheading = card_parent.find(attrs={"data-testid": "subheading-text"})
             if subheading:
                 title = subheading.text.strip()
             else:
                 headings = card_parent.find_all(
-                    attrs={"data-testid": lambda v: v and v.startswith("heading-text-")}
+                    attrs={
+                        "data-testid": lambda v: v
+                        and v.startswith("heading-text-")
+                    }
                 )
                 title = (
                     " ".join([h.text.strip() for h in headings])
@@ -221,7 +249,9 @@ def fetch_dubizzle_ads_for_target(target_info):
             year_elem = card_parent.find(attrs={"data-testid": "listing-year"})
             year = year_elem.text.strip() if year_elem else "غير محدد"
 
-            km_elem = card_parent.find(attrs={"data-testid": "listing-kilometers"})
+            km_elem = card_parent.find(
+                attrs={"data-testid": "listing-kilometers"}
+            )
             km = km_elem.text.strip() if km_elem else "غير محدد"
 
             loc_elem = card_parent.find(attrs={"data-testid": "listing-location"})
@@ -247,14 +277,20 @@ def fetch_dubizzle_ads_for_target(target_info):
                 for img in card_parent.find_all("img"):
                     src = img.get("src", "")
                     alt = img.get("alt", "")
-                    if "dbz-images" in src and "chevron" not in src and "dot" not in alt.lower():
+                    if (
+                        "dbz-images" in src
+                        and "chevron" not in src
+                        and "dot" not in alt.lower()
+                    ):
                         image_url = src
                         if image_url.startswith("//"):
                             image_url = f"https:{image_url}"
                         break
 
             full_url = (
-                href if href.startswith("http") else f"https://uae.dubizzle.com{href}"
+                href
+                if href.startswith("http")
+                else f"https://uae.dubizzle.com{href}"
             )
 
             ads_list.append({
@@ -308,13 +344,17 @@ def process_and_send():
 
             sent_success = False
             if ad["image"]:
-                sent_success = send_telegram_photo(CHAT_ID, ad["image"], caption)
+                sent_success = send_telegram_photo(
+                    CHAT_ID, ad["image"], caption
+                )
             else:
                 sent_success = send_telegram_message(CHAT_ID, caption)
 
             if sent_success:
                 mark_sent(ad["id"])
-                print(f"[{get_uae_time()}] تم إرسال الإعلان بنجاح: {ad['title']}")
+                print(
+                    f"[{get_uae_time()}] تم إرسال الإعلان بنجاح: {ad['title']}"
+                )
                 time.sleep(2)
 
         time.sleep(5)
