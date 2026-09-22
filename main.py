@@ -37,7 +37,7 @@ DB_FILE = "sent_ads.db"
 TARGET_URLS = [
     {
         "name": "تويوتا (مالك أول)",
-        "url": "https://uae.dubizzle.com/ar/motors/used-cars/toyota/?sorting=date_desc&seller_type=OW",
+        "url": "https://uae.dubizzle.com/ar/motors/used-cars/toyota/?seller_type=OW&badges=First%20Owner&sorting=date_desc",
     },
 ]
 
