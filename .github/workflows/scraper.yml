@@ -1,9 +1,6 @@
 name: Dubizzle Toyota Scraper Bot
 
 on:
-  schedule:
-    # يعمل تلقائياً كل 5 دقائق
-    - cron: '*/5 * * * *'
   repository_dispatch:
     types: [cron_trigger]
   workflow_dispatch:
@@ -13,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
 
     permissions:
-      contents: write  # إعطاء صلاحية الكتابة لتحديث قاعدة البيانات sent_ads.db
+      contents: write  # إعطاء صلاحية الكتابة للمستودع مباشرة هنا
 
     steps:
       - name: Checkout Repository
@@ -35,6 +32,8 @@ jobs:
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           CHAT_ID: ${{ secrets.CHAT_ID }}
+          SCRAPER_API_KEY: ${{ secrets.SCRAPER_API_KEY }}
+          SCRAPER_API_KEY2: ${{ secrets.SCRAPER_API_KEY2 }}
           SCRAPINGANT_API_KEY: ${{ secrets.SCRAPINGANT_API_KEY }}
           SCRAPINGANT_API_KEY2: ${{ secrets.SCRAPINGANT_API_KEY2 }}
         run: python main.py
@@ -46,5 +45,4 @@ jobs:
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           git add sent_ads.db
           git commit -m "update sent_ads.db [skip ci]" || exit 0
-          git pull --rebase origin main
           git push
