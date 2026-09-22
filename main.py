@@ -1,6 +1,8 @@
 import os
 import sqlite3
 import time
+import json
+import re
 import requests
 from bs4 import BeautifulSoup
 from datetime import datetime
@@ -159,28 +161,63 @@ def fetch_html_content(target_url):
     return None
 
 
-def extract_image_url(anchor_elem):
-    """دالة محسنة لاستخراج رابط صورة السيارة الحقيقي وتجاهل الأيكونات والشعارات"""
-    imgs = anchor_elem.find_all("img")
-    for img in imgs:
-        src = img.get("src") or img.get("data-src") or ""
-        srcset = img.get("srcset") or img.get("data-srcset") or ""
+def extract_ads_from_json(soup):
+    """دالة مخصصة لاستخراج الإعلانات من كائن JSON الخاص بـ Next.js"""
+    ads = []
+    script_tag = soup.find("script", id="__NEXT_DATA__")
+    if not script_tag or not script_tag.string:
+        return ads
+
+    try:
+        data = json.loads(script_tag.string)
+        page_props = data.get("props", {}).get("pageProps", {})
         
-        if srcset:
-            urls = [u.strip().split()[0] for u in srcset.split(",") if u.strip()]
-            for u in urls:
-                if "dbz-images.dubizzle.com" in u and not u.startswith("data:image"):
-                    return u
+        # الوصول لقائمة الإعلانات بداخل استجابة الصفحة
+        results = page_props.get("results", []) or page_props.get("listings", []) or page_props.get("initialState", {}).get("listings", [])
 
-        if "dbz-images.dubizzle.com" in src and not src.startswith("data:image"):
-            return src
+        for item in results:
+            if not isinstance(item, dict):
+                continue
+                
+            ad_id = str(item.get("id") or item.get("listing_id") or "")
+            title = item.get("title") or item.get("name") or "تويوتا مستعملة"
+            
+            # السعر
+            price_val = item.get("price", {})
+            price = str(price_val.get("value", "غير معلن")) if isinstance(price_val, dict) else str(item.get("price", "غير معلن"))
+            
+            # التفاصيل المرفقة
+            year = str(item.get("year", "غير محدد"))
+            km = str(item.get("kilometers", item.get("kms", "غير محدد")))
+            location = item.get("location", {}).get("name", "الإمارات") if isinstance(item.get("location"), dict) else str(item.get("location", "الإمارات"))
+            
+            # الرابط
+            url_path = item.get("absolute_url") or item.get("url") or ""
+            full_url = url_path if url_path.startswith("http") else f"https://uae.dubizzle.com{url_path}"
 
-    for img in imgs:
-        src = img.get("src") or img.get("data-src")
-        if src and not src.startswith("data:image") and "static.dubizzle.com" not in src and "profiles" not in src:
-            return src
+            # الصورة
+            photos = item.get("photos", []) or item.get("images", [])
+            image_url = None
+            if photos and isinstance(photos, list):
+                first_photo = photos[0]
+                image_url = first_photo.get("main") if isinstance(first_photo, dict) else str(first_photo)
 
-    return None
+            if ad_id and full_url:
+                ads.append({
+                    "id": ad_id,
+                    "title": title,
+                    "price": price,
+                    "year": year,
+                    "km": km,
+                    "location": location,
+                    "seller_type": "المالك المباشر / المالك الأول",
+                    "image": image_url,
+                    "link": full_url
+                })
+    except Exception as e:
+        print(f"خطأ أثناء استخراج JSON: {e}")
+
+    return ads
 
 
 def fetch_dubizzle_ads():
@@ -197,73 +234,80 @@ def fetch_dubizzle_ads():
     try:
         soup = BeautifulSoup(html_content, "html.parser")
         
-        listing_anchors = soup.find_all("a", href=lambda h: h and "/motors/used-cars/toyota/" in h and ("detail" in h or h.count('/') >= 6))
+        # 1. التجربة الأولى: الاستخراج المباشر عبر هيكل JSON المتوفر بـ __NEXT_DATA__
+        ads_list = extract_ads_from_json(soup)
+        
+        # 2. التجربة الثانية: Fallback عبر DOM scraping إذا لم نجد عناصر في JSON
+        if not ads_list:
+            print("لم يتم العثور على بيانات JSON، جاري التبديل لمعالجة عناصر HTML...")
+            listing_anchors = soup.find_all("a", href=lambda h: h and "/motors/used-cars/toyota/" in h and ("detail" in h or h.count('/') >= 6))
 
-        if not listing_anchors:
-            listing_anchors = soup.find_all("a", attrs={"data-testid": lambda val: val and val.startswith("listing-")})
+            if not listing_anchors:
+                listing_anchors = soup.find_all("a", attrs={"data-testid": lambda val: val and val.startswith("listing-")})
 
-        seen_links = set()
+            seen_links = set()
 
-        for a in listing_anchors:
-            href = a.get("href", "")
-            if not href or href in seen_links:
-                continue
+            for a in listing_anchors:
+                href = a.get("href", "")
+                if not href or href in seen_links or href.endswith('/toyota/') or 'sorting=' in href:
+                    continue
 
-            if href.endswith('/toyota/') or 'sorting=' in href:
-                continue
+                seen_links.add(href)
+                
+                clean_link = href.split("?")[0].rstrip("/")
+                parts = [p for p in clean_link.split("/") if p]
+                ad_id = parts[-1] if parts else str(hash(href))
 
-            seen_links.add(href)
-            
-            clean_link = href.split("?")[0].rstrip("/")
-            parts = [p for p in clean_link.split("/") if p]
-            ad_id = parts[-1] if parts else str(hash(href))
+                price_elem = a.find(attrs={"data-testid": "listing-price"}) or a.find(text=lambda t: t and ("درهم" in t or "AED" in t))
+                price = price_elem.text.strip() if price_elem else "غير معلن"
 
-            price_elem = a.find(attrs={"data-testid": "listing-price"})
-            if not price_elem:
-                price_elem = a.find(text=lambda t: t and ("درهم" in t or "AED" in t))
-            price = price_elem.text.strip() if price_elem else "غير معلن"
+                subheading = a.find(attrs={"data-testid": "subheading-text"})
+                if subheading:
+                    title = subheading.text.strip()
+                else:
+                    headings = a.find_all(["h2", "h3", "span"], attrs={"data-testid": lambda v: v and "heading" in str(v)})
+                    title = " ".join([h.text.strip() for h in headings]) if headings else a.get_text(" ", strip=True)[:50]
 
-            subheading = a.find(attrs={"data-testid": "subheading-text"})
-            if subheading:
-                title = subheading.text.strip()
-            else:
-                headings = a.find_all(["h2", "h3", "span"], attrs={"data-testid": lambda v: v and "heading" in str(v)})
-                title = " ".join([h.text.strip() for h in headings]) if headings else a.get_text(" ", strip=True)[:50]
+                year_elem = a.find(attrs={"data-testid": "listing-year"})
+                year = year_elem.text.strip() if year_elem else "غير محدد"
 
-            year_elem = a.find(attrs={"data-testid": "listing-year"})
-            year = year_elem.text.strip() if year_elem else "غير محدد"
+                km_elem = a.find(attrs={"data-testid": "listing-kilometers"})
+                km = km_elem.text.strip() if km_elem else "غير محدد"
 
-            km_elem = a.find(attrs={"data-testid": "listing-kilometers"})
-            km = km_elem.text.strip() if km_elem else "غير محدد"
+                loc_elem = a.find(attrs={"data-testid": "listing-location"})
+                location = loc_elem.text.strip() if loc_elem else "الإمارات"
 
-            loc_elem = a.find(attrs={"data-testid": "listing-location"})
-            location = loc_elem.text.strip() if loc_elem else "الإمارات"
+                badge_text = "المالك الأول" if "First Owner" in a.get_text() or "المالك الأول" in a.get_text() else "المالك المباشر"
 
-            # استخراج شارة نوع البائع (المالك الأول / المالك)
-            badge_text = "المالك الأول" if "First Owner" in a.get_text() or "المالك الأول" in a.get_text() else "المالك المباشر"
+                # استخراج الصورة
+                image_url = None
+                imgs = a.find_all("img")
+                for img in imgs:
+                    src = img.get("src") or img.get("data-src") or ""
+                    if "dbz-images.dubizzle.com" in src and not src.startswith("data:image"):
+                        image_url = src
+                        break
 
-            image_url = extract_image_url(a)
+                full_url = href if href.startswith("http") else f"https://uae.dubizzle.com{href}"
 
-            full_url = href if href.startswith("http") else f"https://uae.dubizzle.com{href}"
-
-            ads_list.append({
-                "id": ad_id,
-                "title": title if title else "تويوتا مستعملة",
-                "price": price,
-                "year": year,
-                "km": km,
-                "location": location,
-                "seller_type": badge_text,
-                "image": image_url,
-                "link": full_url
-            })
-            if len(ads_list) >= 15:
-                break
+                ads_list.append({
+                    "id": ad_id,
+                    "title": title if title else "تويوتا مستعملة",
+                    "price": price,
+                    "year": year,
+                    "km": km,
+                    "location": location,
+                    "seller_type": badge_text,
+                    "image": image_url,
+                    "link": full_url
+                })
+                if len(ads_list) >= 15:
+                    break
 
     except Exception as e:
         print(f"خطأ أثناء تحليل البيانات: {e}")
 
-    return ads_list
+    return ads_list[:15]
 
 
 def process_and_send():
