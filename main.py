@@ -12,7 +12,6 @@ import pytz
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
 
-# المفاتيح الخاصة بـ ScrapingAnt فقط
 SCRAPINGANT_API_KEY = os.getenv("SCRAPINGANT_API_KEY")
 SCRAPINGANT_API_KEY2 = os.getenv("SCRAPINGANT_API_KEY2")
 
@@ -98,9 +97,7 @@ def mark_sent(ad_id):
 
 
 def fetch_html_content(target_url):
-    """جلب المحتوى باستخدام ScrapingAnt حصراً (التدوير بين الحساب الأول والثاني)"""
-    
-    # 1. ScrapingAnt (الحساب الأول)
+    """جلب المحتوى عبر ScrapingAnt"""
     if SCRAPINGANT_API_KEY:
         print("جاري الاتصال عبر ScrapingAnt (الحساب الأول)...")
         try:
@@ -119,7 +116,6 @@ def fetch_html_content(target_url):
         except Exception as e:
             print(f"خطأ في ScrapingAnt (1): {e}")
 
-    # 2. ScrapingAnt (الحساب الثاني)
     if SCRAPINGANT_API_KEY2:
         print("جاري الاتصال عبر ScrapingAnt (الحساب الثاني)...")
         try:
@@ -141,8 +137,96 @@ def fetch_html_content(target_url):
     return None
 
 
+def extract_ads_from_json(soup):
+    """استخراج الإعلانات وتصحيح نمط التحقق من الروابط والصور"""
+    ads = []
+    script_tag = soup.find("script", id="__NEXT_DATA__")
+    if not script_tag or not script_tag.string:
+        return ads
+
+    try:
+        data = json.loads(script_tag.string)
+        results = []
+
+        def search_dict(d):
+            if isinstance(d, dict):
+                # التأكد من وجود الخصائص الأساسية للإعلان
+                if ("listing_id" in d or "id" in d) and ("price" in d or "title" in d or "name" in d):
+                    results.append(d)
+                for v in d.values():
+                    search_dict(v)
+            elif isinstance(d, list):
+                for item in d:
+                    search_dict(item)
+
+        search_dict(data)
+
+        for item in results:
+            ad_id = str(item.get("id") or item.get("listing_id") or "")
+            if not ad_id or len(ad_id) < 3:
+                continue
+
+            # استخراج العنوان
+            title = item.get("title") or item.get("name") or item.get("heading") or "تويوتا مستعملة"
+
+            # استخراج السعر
+            price_val = item.get("price")
+            if isinstance(price_val, dict):
+                price = str(price_val.get("value") or price_val.get("formatted") or "غير معلن")
+            else:
+                price = str(price_val) if price_val else "غير معلن"
+
+            # استخراج الموديل والممشى والموقع
+            year = str(item.get("year") or item.get("model_year") or "غير محدد")
+            km = str(item.get("kilometers") or item.get("kms") or item.get("mileage") or "غير محدد")
+            
+            loc_val = item.get("location")
+            if isinstance(loc_val, dict):
+                location = str(loc_val.get("name") or loc_val.get("city") or "الإمارات")
+            else:
+                location = str(loc_val) if loc_val else "الإمارات"
+
+            # معالجة الرابط آمنة ضد الكائنات Dictionaries
+            raw_url = item.get("absolute_url") or item.get("url") or item.get("link") or ""
+            if isinstance(raw_url, dict):
+                raw_url = raw_url.get("href") or raw_url.get("url") or ""
+            
+            url_str = str(raw_url)
+            if not url_str:
+                continue
+
+            full_url = url_str if url_str.startswith("http") else f"https://uae.dubizzle.com{url_str}"
+
+            # معالجة استخراج الصور بشكل حذر ودقيق
+            photos = item.get("photos") or item.get("images") or item.get("media") or []
+            image_url = None
+
+            if isinstance(photos, list) and len(photos) > 0:
+                first_photo = photos[0]
+                if isinstance(first_photo, dict):
+                    image_url = first_photo.get("main") or first_photo.get("url") or first_photo.get("src")
+                elif isinstance(first_photo, str):
+                    image_url = first_photo
+
+            ads.append({
+                "id": ad_id,
+                "title": escape_markdown(title),
+                "price": escape_markdown(price),
+                "year": escape_markdown(year),
+                "km": escape_markdown(km),
+                "location": escape_markdown(location),
+                "seller_type": "المالك المباشر",
+                "image": image_url,
+                "link": full_url
+            })
+    except Exception as e:
+        print(f"خطأ أثناء استخراج JSON: {e}")
+
+    return ads
+
+
 def extract_ads_from_html(soup):
-    """استخراج الإعلانات من عناصر HTML المباشرة"""
+    """استخراج الإعلانات مباشرة من DOM إذا لم يُعثر على JSON"""
     ads = []
     cards = soup.find_all("a", href=re.compile(r"/motors/used-cars/toyota/.*"))
     seen_ids = set()
@@ -155,7 +239,7 @@ def extract_ads_from_html(soup):
         clean_link = href.split("?")[0].rstrip("/")
         parts = [p for p in clean_link.split("/") if p]
         ad_id = parts[-1] if parts else ""
-        if not ad_id or ad_id in seen_ids:
+        if not ad_id or ad_id in seen_ids or not ad_id.isdigit():
             continue
 
         seen_ids.add(ad_id)
@@ -196,73 +280,6 @@ def extract_ads_from_html(soup):
     return ads
 
 
-def extract_ads_from_json(soup):
-    """استخراج الإعلانات من كائن __NEXT_DATA__"""
-    ads = []
-    script_tag = soup.find("script", id="__NEXT_DATA__")
-    if not script_tag or not script_tag.string:
-        return ads
-
-    try:
-        data = json.loads(script_tag.string)
-        results = []
-
-        def search_dict(d):
-            if isinstance(d, dict):
-                if ("listing_id" in d or "id" in d) and ("price" in d or "title" in d):
-                    results.append(d)
-                for v in d.values():
-                    search_dict(v)
-            elif isinstance(d, list):
-                for item in d:
-                    search_dict(item)
-
-        search_dict(data)
-
-        for item in results:
-            ad_id = str(item.get("id") or item.get("listing_id") or "")
-            if not ad_id or len(ad_id) < 3:
-                continue
-
-            title = item.get("title") or item.get("name") or "تويوتا مستعملة"
-
-            price_val = item.get("price")
-            if isinstance(price_val, dict):
-                price = str(price_val.get("value", "غير معلن"))
-            else:
-                price = str(price_val) if price_val else "غير معلن"
-
-            year = str(item.get("year") or "غير محدد")
-            km = str(item.get("kilometers") or item.get("kms") or "غير محدد")
-
-            url_path = item.get("absolute_url") or item.get("url") or ""
-            if not url_path:
-                continue
-            full_url = url_path if url_path.startswith("http") else f"https://uae.dubizzle.com{url_path}"
-
-            photos = item.get("photos", []) or item.get("images", [])
-            image_url = None
-            if photos and isinstance(photos, list) and len(photos) > 0:
-                first_photo = photos[0]
-                image_url = first_photo.get("main") if isinstance(first_photo, dict) else str(first_photo)
-
-            ads.append({
-                "id": ad_id,
-                "title": escape_markdown(title),
-                "price": escape_markdown(price),
-                "year": escape_markdown(year),
-                "km": escape_markdown(km),
-                "location": "الإمارات",
-                "seller_type": "المالك المباشر",
-                "image": image_url,
-                "link": full_url
-            })
-    except Exception as e:
-        print(f"خطأ أثناء استخراج JSON: {e}")
-
-    return ads
-
-
 def fetch_dubizzle_ads():
     target_url = "https://uae.dubizzle.com/ar/motors/used-cars/toyota/?sorting=date_desc&seller_type=OW"
     html_content = fetch_html_content(target_url)
@@ -273,8 +290,10 @@ def fetch_dubizzle_ads():
 
     soup = BeautifulSoup(html_content, "html.parser")
 
+    # جلب الإعلانات من JSON
     ads_list = extract_ads_from_json(soup)
 
+    # التبديل لـ HTML إذا كانت نتيجة JSON فارغة
     if not ads_list:
         print("لم يتم العثور على بيانات JSON، جاري التبديل لمعالجة عناصر HTML...")
         ads_list = extract_ads_from_html(soup)
@@ -289,7 +308,7 @@ def process_and_send():
     print(f"تم العثور على {len(ads)} إعلان تويوتا حقيقي.")
 
     if not ads:
-        print("لم يتم العثور على إعلانات من الموقع (تم الإلغاء بدون إرسال تنبيه).")
+        print("لم يتم العثور على إعلانات من الموقع.")
         return
 
     new_ads_sent_count = 0
