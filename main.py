@@ -98,8 +98,8 @@ def fetch_html_content(target_url):
         try:
             proxy_url = f"http://api.scraperapi.com?api_key={SCRAPER_API_KEY}&url={target_url}&render=true&keep_headers=true&cache=false"
             res = requests.get(proxy_url, timeout=60)
-            print(f"حالة استجابة ScraperAPI (1): {res.status_code}")
-            if res.status_code == 200 and len(res.text) > 10000:
+            print(f"حالة استجابة ScraperAPI (1): {res.status_code} | الطول: {len(res.text)}")
+            if res.status_code == 200 and len(res.text) > 5000:
                 return res.text
             print(f"فشل ScraperAPI (1) (كود: {res.status_code})، جاري التبديل...")
         except Exception as e:
@@ -111,8 +111,8 @@ def fetch_html_content(target_url):
         try:
             proxy_url = f"http://api.scraperapi.com?api_key={SCRAPER_API_KEY2}&url={target_url}&render=true&keep_headers=true&cache=false"
             res = requests.get(proxy_url, timeout=60)
-            print(f"حالة استجابة ScraperAPI (2): {res.status_code}")
-            if res.status_code == 200 and len(res.text) > 10000:
+            print(f"حالة استجابة ScraperAPI (2): {res.status_code} | الطول: {len(res.text)}")
+            if res.status_code == 200 and len(res.text) > 5000:
                 return res.text
             print(f"فشل ScraperAPI (2) (كود: {res.status_code})، جاري التبديل...")
         except Exception as e:
@@ -130,8 +130,8 @@ def fetch_html_content(target_url):
                 "proxy_country": "AE"
             }
             res = requests.get(ant_api_url, params=params, timeout=90)
-            print(f"حالة استجابة ScrapingAnt (1): {res.status_code}")
-            if res.status_code == 200 and len(res.text) > 10000:
+            print(f"حالة استجابة ScrapingAnt (1): {res.status_code} | الطول: {len(res.text)}")
+            if res.status_code == 200 and len(res.text) > 5000:
                 return res.text
             print(f"فشل ScrapingAnt (1) (كود: {res.status_code})، جاري التبديل...")
         except Exception as e:
@@ -149,8 +149,8 @@ def fetch_html_content(target_url):
                 "proxy_country": "AE"
             }
             res = requests.get(ant_api_url, params=params, timeout=90)
-            print(f"حالة استجابة ScrapingAnt (2): {res.status_code}")
-            if res.status_code == 200 and len(res.text) > 10000:
+            print(f"حالة استجابة ScrapingAnt (2): {res.status_code} | الطول: {len(res.text)}")
+            if res.status_code == 200 and len(res.text) > 5000:
                 return res.text
             print(f"فشل ScrapingAnt (2) (كود: {res.status_code})، جاري التبديل...")
         except Exception as e:
@@ -184,7 +184,8 @@ def extract_image_url(anchor_elem):
 
 
 def fetch_dubizzle_ads():
-    target_url = "https://uae.dubizzle.com/ar/motors/used-cars/toyota/?sorting=date_desc"
+    # الرابط يحتوي على فلاتر: الترتيب من الأحدث للأقدم + المالك المباشر OW + المالك الأول First Owner
+    target_url = "https://uae.dubizzle.com/ar/motors/used-cars/toyota/?sorting=date_desc&seller_type=OW&badges=First%20Owner"
     html_content = fetch_html_content(target_url)
 
     if not html_content:
@@ -238,6 +239,9 @@ def fetch_dubizzle_ads():
             loc_elem = a.find(attrs={"data-testid": "listing-location"})
             location = loc_elem.text.strip() if loc_elem else "الإمارات"
 
+            # استخراج شارة نوع البائع (المالك الأول / المالك)
+            badge_text = "المالك الأول" if "First Owner" in a.get_text() or "المالك الأول" in a.get_text() else "المالك المباشر"
+
             image_url = extract_image_url(a)
 
             full_url = href if href.startswith("http") else f"https://uae.dubizzle.com{href}"
@@ -249,6 +253,7 @@ def fetch_dubizzle_ads():
                 "year": year,
                 "km": km,
                 "location": location,
+                "seller_type": badge_text,
                 "image": image_url,
                 "link": full_url
             })
@@ -281,6 +286,7 @@ def process_and_send():
         caption = (
             f"🚘 *إعلان تويوتا جديد*\n\n"
             f"🚗 *السيارة:* {ad['title']}\n"
+            f"👤 *المالك:* {ad['seller_type']}\n"
             f"💰 *السعر:* {ad['price']} درهم\n"
             f"📅 *الموديل:* {ad['year']}\n"
             f"🛣️ *الممشى:* {ad['km']}\n"
