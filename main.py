@@ -12,36 +12,28 @@ import pytz
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
 
-# المزودات المعتمدة (حسابين ScraperAPI وحسابين ScrapingAnt)
-SCRAPER_API_KEY = os.getenv("SCRAPER_API_KEY")
-SCRAPER_API_KEY2 = os.getenv("SCRAPER_API_KEY2")
+# المفاتيح الخاصة بـ ScrapingAnt فقط
 SCRAPINGANT_API_KEY = os.getenv("SCRAPINGANT_API_KEY")
 SCRAPINGANT_API_KEY2 = os.getenv("SCRAPINGANT_API_KEY2")
 
 DB_FILE = "sent_ads.db"
-
-# المنطقة الزمنية لدولة الإمارات (GST - UTC+4)
 UAE_TZ = pytz.timezone("Asia/Dubai")
 
 
 def get_uae_time_str():
-    """الحصول على الوقت الحالي بتوقيت الإمارات بصيغة واضحة"""
     now = datetime.now(UAE_TZ)
     return now.strftime("%Y-%m-%d %I:%M %p")
 
 
 def escape_markdown(text):
-    """تهريب الرموز الخاصة بـ Markdown لمنع أخطاء التنسيق في Telegram"""
     if not text:
         return ""
-    # الرموز الأساسية التي قد تسبب مشاكل في ParseMode.MARKDOWN
     for char in ['_', '*', '`', '[']:
         text = str(text).replace(char, f"\\{char}")
     return text
 
 
 def send_telegram_photo(chat_id, photo_url, caption):
-    """إرسال صورة مع النص المصاحب عبر تليجرام"""
     try:
         url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendPhoto"
         payload = {
@@ -51,11 +43,9 @@ def send_telegram_photo(chat_id, photo_url, caption):
             "parse_mode": "Markdown"
         }
         response = requests.post(url, data=payload, timeout=20)
-        
         if response.status_code != 200:
             print(f"فشل إرسال الصورة ({response.text})، جاري الإرسال كنص فقط...")
             return send_telegram_message(chat_id, caption)
-            
         return True
     except Exception as e:
         print(f"خطأ أثناء إرسال الصورة: {e}")
@@ -63,7 +53,6 @@ def send_telegram_photo(chat_id, photo_url, caption):
 
 
 def send_telegram_message(chat_id, text):
-    """إرسال رسالة نصية فقط"""
     try:
         url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
         payload = {
@@ -79,7 +68,6 @@ def send_telegram_message(chat_id, text):
         return False
 
 
-# --- إدارة قاعدة البيانات ---
 def init_db():
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
@@ -110,35 +98,9 @@ def mark_sent(ad_id):
 
 
 def fetch_html_content(target_url):
-    """دالة مرنة تحاول الجلب عبر المزودات بالترتيب: ScraperAPI (1) -> ScraperAPI (2) -> ScrapingAnt (1) -> ScrapingAnt (2)"""
+    """جلب المحتوى باستخدام ScrapingAnt حصراً (التدوير بين الحساب الأول والثاني)"""
     
-    # 1. ScraperAPI (الحساب الأول)
-    if SCRAPER_API_KEY:
-        print("جاري الاتصال عبر ScraperAPI (الحساب الأول)...")
-        try:
-            proxy_url = f"http://api.scraperapi.com?api_key={SCRAPER_API_KEY}&url={target_url}&render=true&keep_headers=true&cache=false"
-            res = requests.get(proxy_url, timeout=60)
-            print(f"حالة استجابة ScraperAPI (1): {res.status_code} | الطول: {len(res.text)}")
-            if res.status_code == 200 and len(res.text) > 5000:
-                return res.text
-            print(f"فشل ScraperAPI (1) (كود: {res.status_code})، جاري التبديل...")
-        except Exception as e:
-            print(f"خطأ في ScraperAPI (1): {e}")
-
-    # 2. ScraperAPI (الحساب الثاني)
-    if SCRAPER_API_KEY2:
-        print("جاري الاتصال عبر ScraperAPI (الحساب الثاني)...")
-        try:
-            proxy_url = f"http://api.scraperapi.com?api_key={SCRAPER_API_KEY2}&url={target_url}&render=true&keep_headers=true&cache=false"
-            res = requests.get(proxy_url, timeout=60)
-            print(f"حالة استجابة ScraperAPI (2): {res.status_code} | الطول: {len(res.text)}")
-            if res.status_code == 200 and len(res.text) > 5000:
-                return res.text
-            print(f"فشل ScraperAPI (2) (كود: {res.status_code})، جاري التبديل...")
-        except Exception as e:
-            print(f"خطأ في ScraperAPI (2): {e}")
-
-    # 3. ScrapingAnt (الحساب الأول)
+    # 1. ScrapingAnt (الحساب الأول)
     if SCRAPINGANT_API_KEY:
         print("جاري الاتصال عبر ScrapingAnt (الحساب الأول)...")
         try:
@@ -153,11 +115,11 @@ def fetch_html_content(target_url):
             print(f"حالة استجابة ScrapingAnt (1): {res.status_code} | الطول: {len(res.text)}")
             if res.status_code == 200 and len(res.text) > 5000:
                 return res.text
-            print(f"فشل ScrapingAnt (1) (كود: {res.status_code})، جاري التبديل...")
+            print(f"فشل ScrapingAnt (1) (كود: {res.status_code})، جاري التبديل للحساب الثاني...")
         except Exception as e:
             print(f"خطأ في ScrapingAnt (1): {e}")
 
-    # 4. ScrapingAnt (الحساب الثاني الاحتياطي)
+    # 2. ScrapingAnt (الحساب الثاني)
     if SCRAPINGANT_API_KEY2:
         print("جاري الاتصال عبر ScrapingAnt (الحساب الثاني)...")
         try:
@@ -172,15 +134,70 @@ def fetch_html_content(target_url):
             print(f"حالة استجابة ScrapingAnt (2): {res.status_code} | الطول: {len(res.text)}")
             if res.status_code == 200 and len(res.text) > 5000:
                 return res.text
-            print(f"فشل ScrapingAnt (2) (كود: {res.status_code})، جاري التبديل...")
+            print(f"فشل ScrapingAnt (2) (كود: {res.status_code}).")
         except Exception as e:
             print(f"خطأ في ScrapingAnt (2): {e}")
-            
+
     return None
 
 
+def extract_ads_from_html(soup):
+    """استخراج الإعلانات من عناصر HTML المباشرة"""
+    ads = []
+    cards = soup.find_all("a", href=re.compile(r"/motors/used-cars/toyota/.*"))
+    seen_ids = set()
+
+    for card in cards:
+        href = card.get("href", "")
+        if not href or href in seen_ids or "/used-cars/toyota/?" in href or href.endswith("/toyota/"):
+            continue
+
+        clean_link = href.split("?")[0].rstrip("/")
+        parts = [p for p in clean_link.split("/") if p]
+        ad_id = parts[-1] if parts else ""
+        if not ad_id or ad_id in seen_ids:
+            continue
+
+        seen_ids.add(ad_id)
+
+        title_elem = card.find(["h2", "h3", "strong", "span"], attrs={"data-testid": re.compile(r"heading|title")})
+        title = title_elem.text.strip() if title_elem else "تويوتا مستعملة"
+
+        price_elem = card.find(string=re.compile(r"AED|\d+,\d+|درهم"))
+        price = price_elem.strip() if price_elem else "غير معلن"
+
+        text_content = card.get_text(" ", strip=True)
+        year_match = re.search(r"\b(20[0-2][0-9]|19[9][0-9])\b", text_content)
+        year = year_match.group(1) if year_match else "غير محدد"
+
+        km_match = re.search(r"(\d+[\d,]*\s*(km|كم))", text_content, re.IGNORECASE)
+        km = km_match.group(1) if km_match else "غير محدد"
+
+        full_url = href if href.startswith("http") else f"https://uae.dubizzle.com{href}"
+        img_tag = card.find("img")
+        img_url = None
+        if img_tag:
+            img_url = img_tag.get("src") or img_tag.get("data-src")
+            if img_url and img_url.startswith("data:"):
+                img_url = None
+
+        ads.append({
+            "id": ad_id,
+            "title": escape_markdown(title),
+            "price": escape_markdown(price),
+            "year": escape_markdown(year),
+            "km": escape_markdown(km),
+            "location": "الإمارات",
+            "seller_type": "المالك المباشر",
+            "image": img_url,
+            "link": full_url
+        })
+
+    return ads
+
+
 def extract_ads_from_json(soup):
-    """دالة مخصصة لاستخراج الإعلانات من كائن JSON الخاص بـ Next.js"""
+    """استخراج الإعلانات من كائن __NEXT_DATA__"""
     ads = []
     script_tag = soup.find("script", id="__NEXT_DATA__")
     if not script_tag or not script_tag.string:
@@ -188,55 +205,58 @@ def extract_ads_from_json(soup):
 
     try:
         data = json.loads(script_tag.string)
-        page_props = data.get("props", {}).get("pageProps", {})
-        
-        # الوصول لقائمة الإعلانات بداخل استجابة الصفحة مع مسارات متعددة مرنة
-        results = (
-            page_props.get("results", []) 
-            or page_props.get("listings", []) 
-            or page_props.get("initialState", {}).get("listings", [])
-            or page_props.get("searchResult", {}).get("results", [])
-        )
+        results = []
+
+        def search_dict(d):
+            if isinstance(d, dict):
+                if ("listing_id" in d or "id" in d) and ("price" in d or "title" in d):
+                    results.append(d)
+                for v in d.values():
+                    search_dict(v)
+            elif isinstance(d, list):
+                for item in d:
+                    search_dict(item)
+
+        search_dict(data)
 
         for item in results:
-            if not isinstance(item, dict):
-                continue
-                
             ad_id = str(item.get("id") or item.get("listing_id") or "")
+            if not ad_id or len(ad_id) < 3:
+                continue
+
             title = item.get("title") or item.get("name") or "تويوتا مستعملة"
-            
-            # السعر
-            price_val = item.get("price", {})
-            price = str(price_val.get("value", "غير معلن")) if isinstance(price_val, dict) else str(item.get("price", "غير معلن"))
-            
-            # التفاصيل المرفقة
-            year = str(item.get("year", "غير محدد"))
-            km = str(item.get("kilometers", item.get("kms", "غير محدد")))
-            location = item.get("location", {}).get("name", "الإمارات") if isinstance(item.get("location"), dict) else str(item.get("location", "الإمارات"))
-            
-            # الرابط
+
+            price_val = item.get("price")
+            if isinstance(price_val, dict):
+                price = str(price_val.get("value", "غير معلن"))
+            else:
+                price = str(price_val) if price_val else "غير معلن"
+
+            year = str(item.get("year") or "غير محدد")
+            km = str(item.get("kilometers") or item.get("kms") or "غير محدد")
+
             url_path = item.get("absolute_url") or item.get("url") or ""
+            if not url_path:
+                continue
             full_url = url_path if url_path.startswith("http") else f"https://uae.dubizzle.com{url_path}"
 
-            # الصورة
             photos = item.get("photos", []) or item.get("images", [])
             image_url = None
-            if photos and isinstance(photos, list):
+            if photos and isinstance(photos, list) and len(photos) > 0:
                 first_photo = photos[0]
                 image_url = first_photo.get("main") if isinstance(first_photo, dict) else str(first_photo)
 
-            if ad_id and full_url:
-                ads.append({
-                    "id": ad_id,
-                    "title": escape_markdown(title),
-                    "price": escape_markdown(price),
-                    "year": escape_markdown(year),
-                    "km": escape_markdown(km),
-                    "location": escape_markdown(location),
-                    "seller_type": "المالك المباشر / المالك الأول",
-                    "image": image_url,
-                    "link": full_url
-                })
+            ads.append({
+                "id": ad_id,
+                "title": escape_markdown(title),
+                "price": escape_markdown(price),
+                "year": escape_markdown(year),
+                "km": escape_markdown(km),
+                "location": "الإمارات",
+                "seller_type": "المالك المباشر",
+                "image": image_url,
+                "link": full_url
+            })
     except Exception as e:
         print(f"خطأ أثناء استخراج JSON: {e}")
 
@@ -244,91 +264,20 @@ def extract_ads_from_json(soup):
 
 
 def fetch_dubizzle_ads():
-    # الرابط يحتوي على فلاتر: الترتيب من الأحدث للأقدم + المالك المباشر OW + المالك الأول First Owner
-    target_url = "https://uae.dubizzle.com/ar/motors/used-cars/toyota/?sorting=date_desc&seller_type=OW&badges=First%20Owner"
+    target_url = "https://uae.dubizzle.com/ar/motors/used-cars/toyota/?sorting=date_desc&seller_type=OW"
     html_content = fetch_html_content(target_url)
 
     if not html_content:
-        print("فشل جلب محتوى الصفحة من كافة المزودات.")
+        print("فشل جلب محتوى الصفحة عبر ScrapingAnt.")
         return []
 
-    ads_list = []
+    soup = BeautifulSoup(html_content, "html.parser")
 
-    try:
-        soup = BeautifulSoup(html_content, "html.parser")
-        
-        # 1. التجربة الأولى: الاستخراج المباشر عبر هيكل JSON المتوفر بـ __NEXT_DATA__
-        ads_list = extract_ads_from_json(soup)
-        
-        # 2. التجربة الثانية: Fallback عبر DOM scraping إذا لم نجد عناصر في JSON
-        if not ads_list:
-            print("لم يتم العثور على بيانات JSON، جاري التبديل لمعالجة عناصر HTML...")
-            listing_anchors = soup.find_all("a", href=lambda h: h and "/motors/used-cars/toyota/" in h and ("detail" in h or h.count('/') >= 6))
+    ads_list = extract_ads_from_json(soup)
 
-            if not listing_anchors:
-                listing_anchors = soup.find_all("a", attrs={"data-testid": lambda val: val and val.startswith("listing-")})
-
-            seen_links = set()
-
-            for a in listing_anchors:
-                href = a.get("href", "")
-                if not href or href in seen_links or href.endswith('/toyota/') or 'sorting=' in href:
-                    continue
-
-                seen_links.add(href)
-                
-                clean_link = href.split("?")[0].rstrip("/")
-                parts = [p for p in clean_link.split("/") if p]
-                ad_id = parts[-1] if parts else str(hash(href))
-
-                price_elem = a.find(attrs={"data-testid": "listing-price"}) or a.find(string=lambda t: t and ("درهم" in t or "AED" in t))
-                price = price_elem.text.strip() if price_elem else "غير معلن"
-
-                subheading = a.find(attrs={"data-testid": "subheading-text"})
-                if subheading:
-                    title = subheading.text.strip()
-                else:
-                    headings = a.find_all(["h2", "h3", "span"], attrs={"data-testid": lambda v: v and "heading" in str(v)})
-                    title = " ".join([h.text.strip() for h in headings]) if headings else a.get_text(" ", strip=True)[:50]
-
-                year_elem = a.find(attrs={"data-testid": "listing-year"})
-                year = year_elem.text.strip() if year_elem else "غير محدد"
-
-                km_elem = a.find(attrs={"data-testid": "listing-kilometers"})
-                km = km_elem.text.strip() if km_elem else "غير محدد"
-
-                loc_elem = a.find(attrs={"data-testid": "listing-location"})
-                location = loc_elem.text.strip() if loc_elem else "الإمارات"
-
-                badge_text = "المالك الأول" if "First Owner" in a.get_text() or "المالك الأول" in a.get_text() else "المالك المباشر"
-
-                # استخراج الصورة
-                image_url = None
-                imgs = a.find_all("img")
-                for img in imgs:
-                    src = img.get("src") or img.get("data-src") or ""
-                    if "dbz-images.dubizzle.com" in src and not src.startswith("data:image"):
-                        image_url = src
-                        break
-
-                full_url = href if href.startswith("http") else f"https://uae.dubizzle.com{href}"
-
-                ads_list.append({
-                    "id": ad_id,
-                    "title": escape_markdown(title) if title else "تويوتا مستعملة",
-                    "price": escape_markdown(price),
-                    "year": escape_markdown(year),
-                    "km": escape_markdown(km),
-                    "location": escape_markdown(location),
-                    "seller_type": badge_text,
-                    "image": image_url,
-                    "link": full_url
-                })
-                if len(ads_list) >= 15:
-                    break
-
-    except Exception as e:
-        print(f"خطأ أثناء تحليل البيانات: {e}")
+    if not ads_list:
+        print("لم يتم العثور على بيانات JSON، جاري التبديل لمعالجة عناصر HTML...")
+        ads_list = extract_ads_from_html(soup)
 
     return ads_list[:15]
 
@@ -378,7 +327,7 @@ def process_and_send():
             time.sleep(2)
 
     if new_ads_sent_count == 0:
-        print("جميع الإعلانات المجلوبة تم إرسالها سابقاً (تم السكوت وعدم إرسال رسالة تليجرام).")
+        print("جميع الإعلانات المجلوبة تم إرسالها سابقاً.")
 
 
 if __name__ == "__main__":
