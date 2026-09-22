@@ -2,8 +2,8 @@ name: Dubizzle Toyota Scraper Bot
 
 on:
   schedule:
-    # يعمل تلقائياً كل 15 دقيقة (يمكنك تعديل التوقيت حسب الرغبة)
-    - cron: '*/15 * * * *'
+    # يعمل تلقائياً كل 5 دقائق
+    - cron: '*/5 * * * *'
   repository_dispatch:
     types: [cron_trigger]
   workflow_dispatch:
