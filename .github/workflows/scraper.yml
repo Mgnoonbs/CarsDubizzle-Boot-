@@ -1,4 +1,4 @@
-name: Dubizzle Cars Scraper Bot
+name: Dubizzle Toyota Scraper Bot
 
 on:
   schedule:
@@ -37,6 +37,7 @@ jobs:
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           CHAT_ID: ${{ secrets.CHAT_ID }}
+          SCRAPER_API_KEY: ${{ secrets.SCRAPER_API_KEY }}
           SCRAPINGANT_API_KEY: ${{ secrets.SCRAPINGANT_API_KEY }}
           SCRAPINGANT_API_KEY2: ${{ secrets.SCRAPINGANT_API_KEY2 }}
         run: python main.py

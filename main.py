@@ -20,7 +20,7 @@ CHAT_ID = os.getenv("CHAT_ID")
 
 SCRAPER_API_KEY = os.getenv("SCRAPER_API_KEY")
 SCRAPINGANT_API_KEY = os.getenv("SCRAPINGANT_API_KEY")
-ZENSCRAPE_API_KEY = os.getenv("ZENSCRAPE_API_KEY")
+SCRAPINGANT_API_KEY2 = os.getenv("SCRAPINGANT_API_KEY2")
 
 DB_FILE = "sent_ads.db"
 
@@ -113,46 +113,45 @@ def fetch_with_fallback(target_url, target_name):
 
         time.sleep(3)
 
-    # 2. المحاولة الثانية عبر ScrapingAnt
+    # 2. المحاولة الثانية عبر ScrapingAnt (الأول)
     if SCRAPINGANT_API_KEY:
         proxy_url = f"https://api.scrapingant.com/v2/general?url={requests.utils.quote(target_url)}&x-api-key={SCRAPINGANT_API_KEY}&browser=true"
         try:
             print(
                 f"[{get_uae_time()}] [{target_name}] التحويل التلقائي إلى"
-                " ScrapingAnt..."
+                " ScrapingAnt (1)..."
             )
             res = requests.get(proxy_url, timeout=90)
             if res.status_code == 200:
-                print(f"[{get_uae_time()}] نجح الجلب عبر ScrapingAnt بنجاح.")
+                print(f"[{get_uae_time()}] نجح الجلب عبر ScrapingAnt (1) بنجاح.")
                 return res.text
             else:
                 print(
-                    f"[{get_uae_time()}] ScrapingAnt فشل برمز استجابة:"
+                    f"[{get_uae_time()}] ScrapingAnt (1) فشل برمز استجابة:"
                     f" {res.status_code}"
                 )
         except Exception as e:
-            print(f"[{get_uae_time()}] خطأ في الاتصال بـ ScrapingAnt: {e}")
+            print(f"[{get_uae_time()}] خطأ في الاتصال بـ ScrapingAnt (1): {e}")
 
         time.sleep(3)
 
-    # 3. المحاولة الثالثة والأخيرة عبر ZenScrape
-    if ZENSCRAPE_API_KEY:
-        proxy_url = f"https://app.zenscrape.com/api/v1/get?url={requests.utils.quote(target_url)}&render=true"
-        headers = {"apikey": ZENSCRAPE_API_KEY}
+    # 3. المحاولة الثالثة والأخيرة عبر ScrapingAnt (الثاني)
+    if SCRAPINGANT_API_KEY2:
+        proxy_url = f"https://api.scrapingant.com/v2/general?url={requests.utils.quote(target_url)}&x-api-key={SCRAPINGANT_API_KEY2}&browser=true"
         try:
             print(
-                f"[{get_uae_time()}] [{target_name}] التحويل التلقائي إلى ZenScrape..."
+                f"[{get_uae_time()}] [{target_name}] التحويل التلقائي إلى ScrapingAnt (2)..."
             )
-            res = requests.get(proxy_url, headers=headers, timeout=90)
+            res = requests.get(proxy_url, timeout=90)
             if res.status_code == 200:
-                print(f"[{get_uae_time()}] نجح الجلب عبر ZenScrape بنجاح.")
+                print(f"[{get_uae_time()}] نجح الجلب عبر ScrapingAnt (2) بنجاح.")
                 return res.text
             else:
                 print(
-                    f"[{get_uae_time()}] ZenScrape فشل برمز استجابة: {res.status_code}"
+                    f"[{get_uae_time()}] ScrapingAnt (2) فشل برمز استجابة: {res.status_code}"
                 )
         except Exception as e:
-            print(f"[{get_uae_time()}] خطأ في الاتصال بـ ZenScrape: {e}")
+            print(f"[{get_uae_time()}] خطأ في الاتصال بـ ScrapingAnt (2): {e}")
 
     return None
 
