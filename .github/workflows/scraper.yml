@@ -3,15 +3,20 @@ name: Dubizzle Toyota Scraper Bot
 on:
   repository_dispatch:
     types: [cron_trigger]
-  workflow_dispatch: # يتيح لك التشغيل اليدوي للتجربة من موقع GitHub
+  workflow_dispatch:
 
 jobs:
   run-scraper:
     runs-on: ubuntu-latest
 
+    permissions:
+      contents: write  # إعطاء صلاحية الكتابة للمستودع مباشرة هنا
+
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
+        with:
+          persist-credentials: true
 
       - name: Set up Python
         uses: actions/setup-python@v5
