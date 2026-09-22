@@ -33,23 +33,11 @@ SCRAPINGANT_API_KEY2 = os.getenv("SCRAPINGANT_API_KEY2")
 
 DB_FILE = "sent_ads.db"
 
-# --- قائمة الروابط المستهدفة ---
+# --- قائمة الروابط المستهدفة (تويوتا فقط) ---
 TARGET_URLS = [
     {
         "name": "تويوتا (مالك أول)",
         "url": "https://uae.dubizzle.com/ar/motors/used-cars/toyota/?sorting=date_desc&seller_type=OW",
-    },
-    {
-        "name": "نيسان باترول (مالك أول)",
-        "url": "https://uae.dubizzle.com/ar/motors/used-cars/nissan/patrol/?sorting=date_desc&seller_type=OW",
-    },
-    {
-        "name": "لكزس LX-Series (مالك أول)",
-        "url": "https://uae.dubizzle.com/ar/motors/used-cars/lexus/lx-series/?sorting=date_desc&seller_type=OW",
-    },
-    {
-        "name": "هيونداي (مالك أول)",
-        "url": "https://uae.dubizzle.com/ar/motors/used-cars/hyundai/?sorting=date_desc&seller_type=OW",
     },
 ]
 
