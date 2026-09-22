@@ -19,8 +19,13 @@ TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
 
 SCRAPER_API_KEY = os.getenv("SCRAPER_API_KEY")
-SCRAPINGANT_API_KEY = os.getenv("SCRAPINGANT_API_KEY")
-SCRAPINGANT_API_KEY2 = os.getenv("SCRAPINGANT_API_KEY2")
+
+# تجميع مفاتيح ScrapingAnt في قائمة تلقائية لسهولة التبديل والتجربة
+SCRAPINGANT_KEYS = [
+    os.getenv(f"SCRAPINGANT_API_KEY{i}" if i > 1 else "SCRAPINGANT_API_KEY")
+    for i in range(1, 8)
+]
+SCRAPINGANT_KEYS = [k for k in SCRAPINGANT_KEYS if k]  # تصفية المفاتيح الفارغة إن وجدت
 
 DB_FILE = "sent_ads.db"
 
@@ -92,9 +97,9 @@ def mark_sent(ad_id):
 
 
 def fetch_with_fallback(target_url, target_name):
-    """محاولة جلب الصفحة عبر المنصات بالترتيب مع فاصل زمني لتجنب الضغط"""
+    """محاولة جلب الصفحة عبر المنصات والمفاتيح بالترتيب مع فاصل زمني"""
 
-    # 1. المحاولة الأولى عبر ScraperAPI
+    # 1. المحاولة عبر ScraperAPI
     if SCRAPER_API_KEY:
         proxy_url = f"http://api.scraperapi.com?api_key={SCRAPER_API_KEY}&url={target_url}&render=true&country_code=ae"
         try:
@@ -113,45 +118,31 @@ def fetch_with_fallback(target_url, target_name):
 
         time.sleep(3)
 
-    # 2. المحاولة الثانية عبر ScrapingAnt (الأول)
-    if SCRAPINGANT_API_KEY:
-        proxy_url = f"https://api.scrapingant.com/v2/general?url={requests.utils.quote(target_url)}&x-api-key={SCRAPINGANT_API_KEY}&browser=true"
+    # 2. المحاولة عبر مفاتيح ScrapingAnt (من 1 إلى 7)
+    for idx, key in enumerate(SCRAPINGANT_KEYS, start=1):
+        proxy_url = f"https://api.scrapingant.com/v2/general?url={requests.utils.quote(target_url)}&x-api-key={key}&browser=true"
         try:
             print(
                 f"[{get_uae_time()}] [{target_name}] التحويل التلقائي إلى"
-                " ScrapingAnt (1)..."
+                f" ScrapingAnt ({idx})..."
             )
             res = requests.get(proxy_url, timeout=90)
             if res.status_code == 200:
-                print(f"[{get_uae_time()}] نجح الجلب عبر ScrapingAnt (1) بنجاح.")
+                print(
+                    f"[{get_uae_time()}] نجح الجلب عبر ScrapingAnt ({idx}) بنجاح."
+                )
                 return res.text
             else:
                 print(
-                    f"[{get_uae_time()}] ScrapingAnt (1) فشل برمز استجابة:"
+                    f"[{get_uae_time()}] ScrapingAnt ({idx}) فشل برمز استجابة:"
                     f" {res.status_code}"
                 )
         except Exception as e:
-            print(f"[{get_uae_time()}] خطأ في الاتصال بـ ScrapingAnt (1): {e}")
+            print(
+                f"[{get_uae_time()}] خطأ في الاتصال بـ ScrapingAnt ({idx}): {e}"
+            )
 
         time.sleep(3)
-
-    # 3. المحاولة الثالثة والأخيرة عبر ScrapingAnt (الثاني)
-    if SCRAPINGANT_API_KEY2:
-        proxy_url = f"https://api.scrapingant.com/v2/general?url={requests.utils.quote(target_url)}&x-api-key={SCRAPINGANT_API_KEY2}&browser=true"
-        try:
-            print(
-                f"[{get_uae_time()}] [{target_name}] التحويل التلقائي إلى ScrapingAnt (2)..."
-            )
-            res = requests.get(proxy_url, timeout=90)
-            if res.status_code == 200:
-                print(f"[{get_uae_time()}] نجح الجلب عبر ScrapingAnt (2) بنجاح.")
-                return res.text
-            else:
-                print(
-                    f"[{get_uae_time()}] ScrapingAnt (2) فشل برمز استجابة: {res.status_code}"
-                )
-        except Exception as e:
-            print(f"[{get_uae_time()}] خطأ في الاتصال بـ ScrapingAnt (2): {e}")
 
     return None
 

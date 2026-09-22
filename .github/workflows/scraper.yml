@@ -40,6 +40,11 @@ jobs:
           SCRAPER_API_KEY: ${{ secrets.SCRAPER_API_KEY }}
           SCRAPINGANT_API_KEY: ${{ secrets.SCRAPINGANT_API_KEY }}
           SCRAPINGANT_API_KEY2: ${{ secrets.SCRAPINGANT_API_KEY2 }}
+          SCRAPINGANT_API_KEY3: ${{ secrets.SCRAPINGANT_API_KEY3 }}
+          SCRAPINGANT_API_KEY4: ${{ secrets.SCRAPINGANT_API_KEY4 }}
+          SCRAPINGANT_API_KEY5: ${{ secrets.SCRAPINGANT_API_KEY5 }}
+          SCRAPINGANT_API_KEY6: ${{ secrets.SCRAPINGANT_API_KEY6 }}
+          SCRAPINGANT_API_KEY7: ${{ secrets.SCRAPINGANT_API_KEY7 }}
         run: python main.py
 
       - name: Save DB Cache
