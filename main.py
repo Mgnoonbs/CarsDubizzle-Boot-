@@ -20,12 +20,11 @@ CHAT_ID = os.getenv("CHAT_ID")
 
 SCRAPER_API_KEY = os.getenv("SCRAPER_API_KEY")
 
-# تجميع مفاتيح ScrapingAnt في قائمة تلقائية لسهولة التبديل والتجربة
 SCRAPINGANT_KEYS = [
     os.getenv(f"SCRAPINGANT_API_KEY{i}" if i > 1 else "SCRAPINGANT_API_KEY")
     for i in range(1, 8)
 ]
-SCRAPINGANT_KEYS = [k for k in SCRAPINGANT_KEYS if k]  # تصفية المفاتيح الفارغة إن وجدت
+SCRAPINGANT_KEYS = [k for k in SCRAPINGANT_KEYS if k]
 
 DB_FILE = "sent_ads.db"
 
@@ -97,8 +96,6 @@ def mark_sent(ad_id):
 
 
 def fetch_with_fallback(target_url, target_name):
-    """محاولة جلب الصفحة عبر المنصات والمفاتيح بالترتيب مع فاصل زمني"""
-
     # 1. المحاولة عبر ScraperAPI
     if SCRAPER_API_KEY:
         proxy_url = f"http://api.scraperapi.com?api_key={SCRAPER_API_KEY}&url={target_url}&render=true&country_code=ae"
@@ -115,12 +112,11 @@ def fetch_with_fallback(target_url, target_name):
                 )
         except Exception as e:
             print(f"[{get_uae_time()}] خطأ في الاتصال بـ ScraperAPI: {e}")
-
         time.sleep(3)
 
-    # 2. المحاولة عبر مفاتيح ScrapingAnt (من 1 إلى 7)
+    # 2. المحاولة عبر مفاتيح ScrapingAnt (مع انتظار أطول نسبياً وتحسين الباراميترات)
     for idx, key in enumerate(SCRAPINGANT_KEYS, start=1):
-        proxy_url = f"https://api.scrapingant.com/v2/general?url={requests.utils.quote(target_url)}&x-api-key={key}&browser=true"
+        proxy_url = f"https://api.scrapingant.com/v2/general?url={requests.utils.quote(target_url)}&x-api-key={key}&browser=true&wait_for_selector=a"
         try:
             print(
                 f"[{get_uae_time()}] [{target_name}] التحويل التلقائي إلى"
@@ -141,7 +137,6 @@ def fetch_with_fallback(target_url, target_name):
             print(
                 f"[{get_uae_time()}] خطأ في الاتصال بـ ScrapingAnt ({idx}): {e}"
             )
-
         time.sleep(3)
 
     return None
@@ -163,12 +158,25 @@ def fetch_dubizzle_ads_for_target(target_info):
     try:
         soup = BeautifulSoup(html_content, "html.parser")
 
+        # طباعة عنوان الصفحة للتشخيص في حال صفر نتائج
+        page_title = soup.title.string.strip() if soup.title else "بدون عنوان"
+        print(f"[{get_uae_time()}] عنوان الصفحة المستلمة: {page_title[:60]}")
+
+        # محددات البحث الأساسية
         listing_anchors = soup.find_all(
             "a", attrs={"data-testid": lambda val: val and val.startswith("listing-")}
         )
 
         if not listing_anchors:
             listing_anchors = soup.select("div#listing-card-wrapper a")
+
+        # محدد احتياطي أوسع لروابط السيارات
+        if not listing_anchors:
+            listing_anchors = [
+                a
+                for a in soup.find_all("a", href=True)
+                if "/used-cars/" in a["href"] and len(a["href"].split("/")) > 4
+            ]
 
         seen_links = set()
 
@@ -177,7 +185,7 @@ def fetch_dubizzle_ads_for_target(target_info):
             if not href or href in seen_links:
                 continue
 
-            if "/motors/" not in href:
+            if "/motors/" not in href and "/used-cars/" not in href:
                 continue
 
             seen_links.add(href)
@@ -186,46 +194,38 @@ def fetch_dubizzle_ads_for_target(target_info):
             parts = [p for p in clean_link.split("/") if p]
             ad_id = parts[-1] if parts else str(hash(href))
 
-            price_elem = a.find(attrs={"data-testid": "listing-price"})
-            price = price_elem.text.strip() if price_elem else "غير معلن"
+            # البحث عن عناصر داخل البطاقة الأب إن أمكن، أو من نفس العنصر
+            card_parent = a.find_parent("div", class_=lambda c: c and ("card" in c or "listing" in c)) or a
 
-            subheading = a.find(attrs={"data-testid": "subheading-text"})
+            price_elem = card_parent.find(attrs={"data-testid": "listing-price"}) or card_parent.find(string=lambda s: s and "AED" in str(s))
+            price = price_elem.text.strip() if hasattr(price_elem, 'text') else (str(price_elem).strip() if price_elem else "غير معلن")
+
+            subheading = card_parent.find(attrs={"data-testid": "subheading-text"})
             if subheading:
                 title = subheading.text.strip()
             else:
-                headings = a.find_all(
+                headings = card_parent.find_all(
                     attrs={"data-testid": lambda v: v and v.startswith("heading-text-")}
                 )
                 title = (
                     " ".join([h.text.strip() for h in headings])
                     if headings
-                    else target_name
+                    else (a.get("title") or target_name)
                 )
 
-            year_elem = a.find(attrs={"data-testid": "listing-year"})
+            year_elem = card_parent.find(attrs={"data-testid": "listing-year"})
             year = year_elem.text.strip() if year_elem else "غير محدد"
 
-            km_elem = a.find(attrs={"data-testid": "listing-kilometers"})
+            km_elem = card_parent.find(attrs={"data-testid": "listing-kilometers"})
             km = km_elem.text.strip() if km_elem else "غير محدد"
 
-            loc_elem = a.find(attrs={"data-testid": "listing-location"})
+            loc_elem = card_parent.find(attrs={"data-testid": "listing-location"})
             location = loc_elem.text.strip() if loc_elem else "الإمارات"
 
             image_url = None
-            gallery_div = a.find(attrs={"data-testid": "image-gallery"})
-            if gallery_div:
-                img_tag = gallery_div.find(
-                    "img", src=lambda s: s and "dbz-images.dubizzle.com" in s
-                )
-                if img_tag:
-                    image_url = img_tag.get("src")
-
-            if not image_url:
-                img_tag = a.find(
-                    "img", src=lambda s: s and "dbz-images.dubizzle.com" in s
-                )
-                if img_tag:
-                    image_url = img_tag.get("src")
+            img_tag = card_parent.find("img", src=lambda s: s and ("dbz-images" in s or "dubizzle" in s))
+            if img_tag:
+                image_url = img_tag.get("src")
 
             full_url = (
                 href if href.startswith("http") else f"https://uae.dubizzle.com{href}"
@@ -273,7 +273,7 @@ def process_and_send():
             caption = (
                 f"🚘 *إعلان جديد: {ad['category']}*\n\n"
                 f"🚗 *السيارة:* {ad['title']}\n"
-                f"💰 *السعر:* {ad['price']} درهم\n"
+                f"💰 *السعر:* {ad['price']}\n"
                 f"📅 *الموديل:* {ad['year']}\n"
                 f"🛣️ *الممشى:* {ad['km']}\n"
                 f"📍 *الموقع:* {ad['location']}\n\n"
