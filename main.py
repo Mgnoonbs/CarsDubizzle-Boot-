@@ -141,7 +141,6 @@ def fetch_with_fallback(target_url, target_name):
 
     return None
 
-
 def fetch_dubizzle_ads_for_target(target_info):
     target_name = target_info["name"]
     target_url = target_info["url"]
@@ -194,8 +193,13 @@ def fetch_dubizzle_ads_for_target(target_info):
             parts = [p for p in clean_link.split("/") if p]
             ad_id = parts[-1] if parts else str(hash(href))
 
-            # البحث عن عناصر داخل البطاقة الأب إن أمكن، أو من نفس العنصر
-            card_parent = a.find_parent("div", class_=lambda c: c and ("card" in c or "listing" in c)) or a
+            # البحث عن البطاقة الأب الأوسع (article أو حاوية الإعلان)
+            card_parent = (
+                a.find_parent("article")
+                or a.find_parent("div", class_=lambda c: c and ("card" in str(c).lower() or "listing" in str(c).lower()))
+                or a.find_parent("li")
+                or a
+            )
 
             price_elem = card_parent.find(attrs={"data-testid": "listing-price"}) or card_parent.find(string=lambda s: s and "AED" in str(s))
             price = price_elem.text.strip() if hasattr(price_elem, 'text') else (str(price_elem).strip() if price_elem else "غير معلن")
@@ -223,9 +227,21 @@ def fetch_dubizzle_ads_for_target(target_info):
             location = loc_elem.text.strip() if loc_elem else "الإمارات"
 
             image_url = None
-            img_tag = card_parent.find("img", src=lambda s: s and ("dbz-images" in s or "dubizzle" in s))
+            img_tag = card_parent.find("img")
             if img_tag:
-                image_url = img_tag.get("src")
+                image_url = (
+                    img_tag.get("src")
+                    or img_tag.get("data-src")
+                    or img_tag.get("data-original")
+                )
+                if image_url and image_url.startswith("//"):
+                    image_url = f"https:{image_url}"
+
+            # تنظيف رابط الصورة والتحقق منه
+            if image_url and not any(
+                d in image_url for d in ["dbz-images", "dubizzle", "images", "http"]
+            ):
+                image_url = None
 
             full_url = (
                 href if href.startswith("http") else f"https://uae.dubizzle.com{href}"
@@ -250,8 +266,6 @@ def fetch_dubizzle_ads_for_target(target_info):
         print(f"خطأ أثناء تحليل البيانات لـ {target_name}: {e}")
 
     return ads_list
-
-
 def process_and_send():
     print(
         f"[{get_uae_time()}] بدء جلب ومعالجة الإعلانات للفئات المستهدفة (توقيت"
