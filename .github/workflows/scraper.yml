@@ -10,6 +10,8 @@ on:
 jobs:
   run-scraper:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write  # السماح بكتابة Commit في المستودع
 
     steps:
       - name: Checkout Repository
@@ -19,14 +21,6 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-
-      - name: Restore DB Cache
-        uses: actions/cache@v4
-        with:
-          path: sent_ads.db
-          key: sent-ads-db-${{ runner.os }}-${{ github.run_id }}
-          restore-keys: |
-            sent-ads-db-${{ runner.os }}-
 
       - name: Install Dependencies
         run: |
@@ -47,9 +41,9 @@ jobs:
           SCRAPINGANT_API_KEY7: ${{ secrets.SCRAPINGANT_API_KEY7 }}
         run: python main.py
 
-      - name: Save DB Cache
-        uses: actions/cache@v4
-        if: always()
-        with:
-          path: sent_ads.db
-          key: sent-ads-db-${{ runner.os }}-${{ github.run_id }}
+      - name: Commit and Push DB if changed
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add sent_ads.db || true
+          git diff --quiet && git diff --staged --quiet || (git commit -m "Update sent_ads.db [skip ci]" && git push)
