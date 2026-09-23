@@ -7,10 +7,6 @@ on:
   repository_dispatch:
     types: [cron_trigger]
 
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: false
-
 jobs:
   run-scraper:
     runs-on: ubuntu-latest
@@ -20,8 +16,6 @@ jobs:
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -51,9 +45,5 @@ jobs:
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          git stash || true
-          git pull origin main --rebase || git rebase --abort || true
-          git stash pop || true
           git add sent_ads.db || true
-          git diff --quiet && git diff --staged --quiet || git commit -m "Update sent_ads.db [skip ci]"
-          git push origin main
+          git diff --quiet && git diff --staged --quiet || (git commit -m "Update sent_ads.db [skip ci]" && git push)
