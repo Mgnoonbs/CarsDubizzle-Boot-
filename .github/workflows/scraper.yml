@@ -45,5 +45,7 @@ jobs:
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git fetch origin main || true
+          git rebase origin/main || git rebase --abort || true
           git add sent_ads.db || true
-          git diff --quiet && git diff --staged --quiet || (git commit -m "Update sent_ads.db [skip ci]" && git push)
+          git diff --quiet && git diff --staged --quiet || (git commit -m "Update sent_ads.db [skip ci]" && git push origin main)
